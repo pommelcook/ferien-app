@@ -237,7 +237,7 @@ main#tab-content {
   border-color: var(--green);
 }
 
-.list-toolbar { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+.list-toolbar { display: flex; justify-content: flex-end; gap: 4px; margin-bottom: 4px; flex-wrap: wrap; }
 
 .category { margin-bottom: 2px; }
 .category-header {
@@ -336,3 +336,110 @@ main#tab-content {
   .sidebar .nav-tab.active { background: var(--green-light); color: var(--green); }
   main#tab-content { max-width: 900px; padding: 20px 32px 40px; }
 }
+
+/* ===========================================================
+   DUNKELMODUS
+   =========================================================== */
+:root[data-theme="dark"] {
+  --border: #33373d;
+  --grey: #9aa0a6;
+  --green-light: #16321a;
+  --amber-light: #3a2e12;
+}
+[data-theme="dark"] body { background: #16181c; color: #eee; }
+[data-theme="dark"] header,
+[data-theme="dark"] .panel,
+[data-theme="dark"] .tab-bar,
+[data-theme="dark"] .sidebar,
+[data-theme="dark"] .unterkunft-card,
+[data-theme="dark"] .field-form input,
+[data-theme="dark"] .field-form textarea,
+[data-theme="dark"] .add-form input[type="text"],
+[data-theme="dark"] .add-form select,
+[data-theme="dark"] .reminder-form input {
+  background: #1f2227;
+  color: #eee;
+  border-color: #33373d;
+}
+[data-theme="dark"] button.secondary { background: #1f2227; color: #8fd08f; border-color: #33373d; }
+[data-theme="dark"] button.link-button { color: #9aa0a6; }
+[data-theme="dark"] .trip-list-item:hover { background: #25282e; }
+[data-theme="dark"] .item-row { border-bottom-color: #2a2d33; }
+[data-theme="dark"] .progress-bar { background: #2a2d33; }
+[data-theme="dark"] .chip { background: #1f2227; border-color: #33373d; color: #ccc; }
+[data-theme="dark"] .category-header { color: #eee; }
+[data-theme="dark"] .hint, [data-theme="dark"] .hint-empty, [data-theme="dark"] .hint-small { color: #9aa0a6; }
+[data-theme="dark"] .sidebar .nav-tab { color: #ccc; }
+[data-theme="dark"] .theme-toggle-row button.active { background: var(--green-light); color: var(--green); border-color: var(--green); }
+
+.theme-toggle-row { display: flex; gap: 6px; margin-top: 6px; }
+.theme-toggle-row button {
+  background: white;
+  color: var(--grey);
+  border: 1px solid var(--border);
+  flex: 1;
+  justify-content: center;
+}
+.theme-toggle-row button.active { background: var(--green-light); color: var(--green); border-color: var(--green); }
+
+/* ===========================================================
+   SORTIEREN / DRAG & DROP
+   =========================================================== */
+.item-row .drag-handle {
+  cursor: grab;
+  color: var(--grey);
+  font-size: 13px;
+  flex-shrink: 0;
+  touch-action: none;
+}
+.item-row.dragging { opacity: 0.4; }
+.item-row .move-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex-shrink: 0;
+}
+.item-row .move-buttons button {
+  background: transparent;
+  color: var(--grey);
+  border: none;
+  padding: 0 2px;
+  font-size: 10px;
+  line-height: 1;
+}
+.item-row .move-buttons button:disabled { opacity: 0.25; }
+.category-icon { color: var(--grey); font-size: 13px; }
+
+/* ===========================================================
+   WETTER
+   =========================================================== */
+.weather-panel { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.weather-now { display: flex; align-items: center; gap: 8px; font-size: 22px; font-weight: 500; }
+.weather-now i { font-size: 26px; color: var(--amber-dark); }
+.weather-forecast { display: flex; gap: 10px; margin-left: auto; }
+.weather-day { text-align: center; font-size: 11px; color: var(--grey); }
+.weather-day i { font-size: 16px; display: block; color: var(--amber-dark); }
+
+/* ===========================================================
+   ERINNERUNGEN
+   =========================================================== */
+.bell-btn {
+  background: transparent;
+  border: none;
+  color: var(--grey);
+  padding: 0 2px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.bell-btn.active { color: var(--amber-dark); }
+.reminder-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  background: var(--amber-light);
+  border-radius: 8px;
+  margin: 2px 0;
+  flex-wrap: wrap;
+}
+.reminder-form input { padding: 5px 6px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; }
