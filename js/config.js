@@ -25,7 +25,7 @@ const APP_CONFIG = {
 // ===========================================================
 // VERSION (wird im Tab "Mehr" angezeigt)
 // ===========================================================
-const APP_VERSION = "0.1.0";
+const APP_VERSION = "0.2.0";
 const APP_BUILD_DATE = "2026-09-29";
 
 // ===========================================================
@@ -49,6 +49,38 @@ const MERKMALE_DEFS = [
   { key: "zelten", label: "Zelten", icon: "ti-tent" },
   { key: "haustier", label: "Haustier", icon: "ti-paw" },
 ];
+
+// ===========================================================
+// KATEGORIE-PIKTOGRAMME
+// ===========================================================
+// Ordnet Kategorienamen (Teilwort-Suche, Gross-/Kleinschreibung egal)
+// automatisch ein passendes Icon zu, damit Listen auf einen Blick
+// erfassbar sind. Erste Übereinstimmung gewinnt, sonst Fallback "ti-list".
+const CATEGORY_ICON_RULES = [
+  { match: ["dokument", "pass", "ausweis"], icon: "ti-file-text" },
+  { match: ["kleid", "hose", "jacke", "pulli"], icon: "ti-shirt" },
+  { match: ["schuh"], icon: "ti-shoe" },
+  { match: ["hygien", "kosmetik", "dusche"], icon: "ti-droplet" },
+  { match: ["mediz", "apotheke", "gesundheit", "erste hilfe"], icon: "ti-first-aid-kit" },
+  { match: ["elektro", "technik", "kabel", "ladegerät", "akku"], icon: "ti-plug" },
+  { match: ["spielzeug", "spiel"], icon: "ti-puzzle" },
+  { match: ["küche", "essen", "verpflegung", "proviant"], icon: "ti-tools-kitchen-2" },
+  { match: ["sport"], icon: "ti-ball-football" },
+  { match: ["baby", "kleinkind", "windel"], icon: "ti-baby-carriage" },
+  { match: ["ski", "wintersport", "schnee"], icon: "ti-snowflake" },
+  { match: ["bad", "schwimm", "wasser"], icon: "ti-swimming" },
+  { match: ["geld", "finanz", "bargeld", "karte"], icon: "ti-cash" },
+  { match: ["auto", "fahrzeug"], icon: "ti-car" },
+  { match: ["camping", "zelt"], icon: "ti-tent" },
+  { match: ["haustier", "hund", "katze"], icon: "ti-paw" },
+  { match: ["reinigung", "putz"], icon: "ti-spray" },
+];
+
+function categoryIcon(name) {
+  const n = (name || "").toLowerCase();
+  const rule = CATEGORY_ICON_RULES.find((r) => r.match.some((m) => n.includes(m)));
+  return rule ? rule.icon : "ti-list";
+}
 
 // MSAL-Konfigurationsobjekt (wird von auth.js verwendet)
 const MSAL_CONFIG = {
