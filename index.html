@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ferien-App</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#2e7d32" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.47.0/iconfont/tabler-icons.min.css" />
+
+  <!-- Suchmaschinen sollen diese private App nicht indexieren -->
+  <meta name="robots" content="noindex, nofollow" />
+
+  <!-- MSAL.js für die Microsoft-Anmeldung -->
+  <script src="https://alcdn.msauth.net/browser/3.18.0/js/msal-browser.min.js"></script>
+</head>
+<body>
+
+  <div id="login-screen">
+    <div class="sun-badge"><i class="ti ti-sun"></i></div>
+    <h2>Ferien-App</h2>
+    <p>Melde dich mit deinem Microsoft-Konto an, um auf deine Ferien-Listen zuzugreifen.</p>
+    <button id="login-button">Mit Microsoft anmelden</button>
+  </div>
+
+  <div id="app-screen" class="hidden">
+    <header>
+      <div class="sun-badge small"><i class="ti ti-sun"></i></div>
+      <div class="header-text">
+        <p id="header-sub"></p>
+        <h1 id="header-title">Ferien-App</h1>
+      </div>
+      <span id="sync-status"></span>
+    </header>
+
+    <div class="body-layout">
+      <!-- Seitenleiste: nur ab PC-Breite sichtbar (siehe style.css), gleiche
+           Bereiche wie die untere Tab-Leiste, nur als "Verwalten"-Navigation -->
+      <nav class="sidebar">
+        <p class="sidebar-title">Verwalten</p>
+        <button class="nav-tab active" data-tab="start"><i class="ti ti-home"></i><span>Start</span></button>
+        <button class="nav-tab" data-tab="ferien"><i class="ti ti-beach"></i><span>Ferien</span></button>
+        <button class="nav-tab" data-tab="packliste"><i class="ti ti-checkbox"></i><span>Packliste</span></button>
+        <button class="nav-tab" data-tab="todo"><i class="ti ti-list-check"></i><span>To-Do</span></button>
+        <button class="nav-tab" data-tab="mehr"><i class="ti ti-dots"></i><span>Mehr</span></button>
+      </nav>
+
+      <main id="tab-content"></main>
+    </div>
+
+    <!-- Untere Tab-Leiste: nur bis Tablet-Breite sichtbar (siehe style.css) -->
+    <nav class="tab-bar">
+      <button class="nav-tab active" data-tab="start"><i class="ti ti-home"></i><span>Start</span></button>
+      <button class="nav-tab" data-tab="ferien"><i class="ti ti-beach"></i><span>Ferien</span></button>
+      <button class="nav-tab" data-tab="packliste"><i class="ti ti-checkbox"></i><span>Packliste</span></button>
+      <button class="nav-tab" data-tab="todo"><i class="ti ti-list-check"></i><span>To-Do</span></button>
+      <button class="nav-tab" data-tab="mehr"><i class="ti ti-dots"></i><span>Mehr</span></button>
+    </nav>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/graph.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
