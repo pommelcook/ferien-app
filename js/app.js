@@ -168,12 +168,21 @@ function setCurrentTrip(id) {
   saveChange();
 }
 
-/** Liefert die Ferien, deren Zeitraum (von-bis) das heutige Datum umfasst,
- *  falls es genau eine solche gibt - sonst null. Für Ferien ohne Bis-Datum
- *  gilt: von <= heute reicht (offenes Ende). */
+// Anzahl Tage nach Ende einer Ferien, in denen sie noch als "aktuell" gilt
+// (Gnadenfrist), bevor auf die nächstfolgende Ferien umgeschaltet wird.
+const AKTUELL_GNADENFRIST_TAGE = 7;
+
+/** Liefert die Ferien, die aktuell als "die laufende Ferien" gelten:
+ *  1. eine Ferien, deren Zeitraum (von-bis) das heutige Datum umfasst
+ *     (Ferien ohne Bis-Datum: von <= heute reicht, offenes Ende);
+ *  2. sonst die zuletzt beendete Ferien, falls ihr Ende nicht mehr als
+ *     AKTUELL_GNADENFRIST_TAGE zurückliegt;
+ *  3. sonst die nächstfolgende (zeitlich nächste künftige) Ferien.
+ *  Gibt null zurück, wenn keine dieser drei Varianten zutrifft. */
 function findDateCurrentTrip(data) {
   const today = new Date(new Date().toDateString());
-  return data.ferien.find((f) => {
+
+  const laufend = data.ferien.find((f) => {
     if (!f.von) return false;
     const von = new Date(f.von);
     if (today < von) return false;
@@ -182,11 +191,28 @@ function findDateCurrentTrip(data) {
       if (today > bis) return false;
     }
     return true;
-  }) || null;
+  });
+  if (laufend) return laufend;
+
+  const kuerzlichBeendet = data.ferien
+    .filter((f) => f.bis && new Date(f.bis) < today)
+    .sort((a, b) => new Date(b.bis) - new Date(a.bis))[0];
+  if (kuerzlichBeendet) {
+    const tageSeitEnde = Math.round((today - new Date(kuerzlichBeendet.bis)) / 86400000);
+    if (tageSeitEnde <= AKTUELL_GNADENFRIST_TAGE) return kuerzlichBeendet;
+  }
+
+  const naechste = data.ferien
+    .filter((f) => f.von && new Date(f.von) > today)
+    .sort((a, b) => new Date(a.von) - new Date(b.von))[0];
+  if (naechste) return naechste;
+
+  return null;
 }
 
 /** Bestimmt, welche Ferien beim App-Start vorausgewählt wird: zuerst eine
- *  datumsmässig gerade laufende Ferien, sonst die zuletzt angezeigte
+ *  datumsmässig gerade "aktuelle" Ferien (laufend, kürzlich beendet oder
+ *  nächstfolgend - siehe findDateCurrentTrip), sonst die zuletzt angezeigte
  *  (data.lastTripId), sonst die erste vorhandene Ferien. */
 function determineInitialTripId(data) {
   if (!data.ferien.length) return null;
@@ -317,6 +343,14 @@ function initScrollTopButton() {
 function render() {
   const trip = getCurrentTrip();
   document.getElementById("header-title").textContent = trip ? trip.titel : "Ferien-App";
+  const headerDate = document.getElementById("header-date");
+  if (headerDate) {
+    headerDate.textContent = trip && trip.von
+      ? formatDateShort(trip.von) + (trip.bis ? " - " + formatDateShort(trip.bis) : "")
+      : "";
+  }
+  const headerVersion = document.getElementById("header-version");
+  if (headerVersion) headerVersion.textContent = "v" + APP_VERSION;
   renderTripSwitcher();
   renderNavBars();
 
@@ -640,55 +674,53 @@ function renderReisetagTab(el, trip) {
   el.appendChild(nav);
 
   // --- To-Dos ---
+  const todosForDay = trip.todo.filter((i) => reisetagItemMatches(i, trip, reisetagOffset, reisetagShowAllOpen));
   const todoSection = document.createElement("section");
   todoSection.className = "panel";
-  const todoHeadingRow = document.createElement("div");
-  todoHeadingRow.className = "panel-header-row";
-  todoHeadingRow.innerHTML = `<h2 style="margin:0">✅ To-Dos</h2>`;
-  const todoLinkBtn = document.createElement("button");
-  todoLinkBtn.type = "button";
-  todoLinkBtn.className = "icon-btn";
-  todoLinkBtn.title = "Zur To-Do-Liste";
-  todoLinkBtn.innerHTML = `<i class="ti ti-external-link"></i>`;
-  todoLinkBtn.onclick = () => { currentTab = "todo"; render(); };
-  todoHeadingRow.appendChild(todoLinkBtn);
-  todoSection.appendChild(todoHeadingRow);
-  const todosForDay = trip.todo.filter((i) => reisetagItemMatches(i, trip, reisetagOffset, reisetagShowAllOpen));
-  if (!todosForDay.length) {
-    const hint = document.createElement("p");
-    hint.className = "hint-empty";
-    hint.textContent = "Keine To-Dos zu sehen.";
-    todoSection.appendChild(hint);
-  } else {
-    todosForDay.forEach((item) => todoSection.appendChild(reisetagItemRow(item, onChange)));
+  const todoHeaderResult = collapsibleHeader(
+    "reisetag:todos",
+    `<i class="ti ti-external-link reisetag-jump-icon" title="Zur To-Do-Liste" data-jump="todo"></i> ✅ To-Dos (${todosForDay.length})`,
+    onChange
+  );
+  todoSection.appendChild(todoHeaderResult.header);
+  const jumpTodoIcon = todoHeaderResult.header.querySelector('[data-jump="todo"]');
+  if (jumpTodoIcon) jumpTodoIcon.onclick = (e) => { e.stopPropagation(); currentTab = "todo"; render(); };
+  if (!todoHeaderResult.isCollapsed) {
+    if (!todosForDay.length) {
+      const hint = document.createElement("p");
+      hint.className = "hint-empty";
+      hint.textContent = "Keine To-Dos zu sehen.";
+      todoSection.appendChild(hint);
+    } else {
+      todosForDay.forEach((item) => todoSection.appendChild(reisetagItemRow(item, onChange)));
+    }
+    todoSection.appendChild(renderReisetagQuickAddForm(trip, "todo", reisetagOffset, onChange));
   }
-  todoSection.appendChild(renderReisetagQuickAddForm(trip, "todo", reisetagOffset, onChange));
   el.appendChild(todoSection);
 
   // --- Packliste: kein eigenes Termin-Feld, gilt daher immer als "ohne Datum" ---
+  const openPack = trip.packliste.filter((i) => reisetagItemMatches(i, trip, reisetagOffset, reisetagShowAllOpen));
   const packSection = document.createElement("section");
   packSection.className = "panel";
-  const packHeadingRow = document.createElement("div");
-  packHeadingRow.className = "panel-header-row";
-  packHeadingRow.innerHTML = `<h2 style="margin:0">🎒 Packliste</h2>`;
-  const packLinkBtn = document.createElement("button");
-  packLinkBtn.type = "button";
-  packLinkBtn.className = "icon-btn";
-  packLinkBtn.title = "Zur Packliste";
-  packLinkBtn.innerHTML = `<i class="ti ti-external-link"></i>`;
-  packLinkBtn.onclick = () => { currentTab = "packliste"; render(); };
-  packHeadingRow.appendChild(packLinkBtn);
-  packSection.appendChild(packHeadingRow);
-  const openPack = trip.packliste.filter((i) => reisetagItemMatches(i, trip, reisetagOffset, reisetagShowAllOpen));
-  if (!openPack.length) {
-    const empty = document.createElement("p");
-    empty.className = "hint-empty";
-    empty.textContent = "Alles gepackt!";
-    packSection.appendChild(empty);
-  } else {
-    openPack.forEach((item) => packSection.appendChild(reisetagItemRow(item, onChange)));
+  const packHeaderResult = collapsibleHeader(
+    "reisetag:packliste",
+    `<i class="ti ti-external-link reisetag-jump-icon" title="Zur Packliste" data-jump="packliste"></i> 🎒 Packliste (${openPack.length})`,
+    onChange
+  );
+  packSection.appendChild(packHeaderResult.header);
+  const jumpPackIcon = packHeaderResult.header.querySelector('[data-jump="packliste"]');
+  if (jumpPackIcon) jumpPackIcon.onclick = (e) => { e.stopPropagation(); currentTab = "packliste"; render(); };
+  if (!packHeaderResult.isCollapsed) {
+    if (!openPack.length) {
+      const empty = document.createElement("p");
+      empty.className = "hint-empty";
+      empty.textContent = "Alles gepackt!";
+      packSection.appendChild(empty);
+    } else {
+      openPack.forEach((item) => packSection.appendChild(reisetagItemRow(item, onChange)));
+    }
+    packSection.appendChild(renderReisetagQuickAddForm(trip, "packliste", reisetagOffset, onChange));
   }
-  packSection.appendChild(renderReisetagQuickAddForm(trip, "packliste", reisetagOffset, onChange));
   el.appendChild(packSection);
 }
 
@@ -738,6 +770,13 @@ function reisetagItemRow(item, onChange) {
     badge.style.marginLeft = "6px";
     badge.textContent = formatTermin(Number(item.termin));
     span.appendChild(badge);
+  }
+  if (item.kategorie) {
+    const katBadge = document.createElement("span");
+    katBadge.className = "hint-small reisetag-kategorie-badge";
+    katBadge.style.marginLeft = "6px";
+    katBadge.textContent = item.kategorie;
+    span.appendChild(katBadge);
   }
   row.appendChild(span);
 
@@ -1015,6 +1054,14 @@ function formatDate(iso) {
   return `${d}.${m}.${y}`;
 }
 
+/** Kurzform ohne führende Nullen und mit zweistelligem Jahr, z. B. "30.9.26"
+ *  - fürs Ferien-Datum im Kopfbereich, wo es platzsparend sein soll. */
+function formatDateShort(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${Number(d)}.${Number(m)}.${y.slice(2)}`;
+}
+
 /** Formular zum Bearbeiten von Titel und Zeitraum der aktuellen Ferien
  *  (bislang liess sich das nur beim Anlegen per Prompt setzen). */
 function renderTripEditForm(trip, onChange) {
@@ -1084,7 +1131,7 @@ function renderUnterkuenfte(el, trip) {
     const ortZeile = [u.adresse, u.plzOrt, u.land].filter(Boolean).join(", ");
     card.innerHTML = `
       <p class="u-name"><i class="ti ti-home"></i>${escapeHtml(u.name || "Ohne Namen")}</p>
-      ${etappe ? `<p class="u-dates"><i class="ti ti-map-pin"></i> ${escapeHtml(etappe.titel)}</p>` : ""}
+      ${etappe ? `<p class="u-dates"><i class="ti ti-map-pin"></i> ${escapeHtml(etappenLabel(trip, etappe))}</p>` : ""}
       ${zeitraum ? `<p class="u-dates">${escapeHtml(zeitraum)}</p>` : ""}
       ${ortZeile ? `<p class="u-adresse">${escapeHtml(ortZeile)}</p>` : ""}
     `;
@@ -1137,7 +1184,7 @@ function renderUnterkunftForm(trip, onChange) {
     <label>Etappe
       <select name="etappeId">
         <option value="">Keine Etappe</option>
-        ${trip.etappen.map((e) => `<option value="${escapeHtml(e.id)}" ${u.etappeId === e.id ? "selected" : ""}>${escapeHtml(e.titel)}</option>`).join("")}
+        ${trip.etappen.map((e) => `<option value="${escapeHtml(e.id)}" ${u.etappeId === e.id ? "selected" : ""}>${escapeHtml(etappenLabel(trip, e))}</option>`).join("")}
       </select>
     </label>` : ""}
     <div class="field-row">
@@ -1368,7 +1415,7 @@ function renderEtappen(el, trip) {
     card.className = "unterkunft-card";
     const zeitraum = [etp.von ? formatDate(etp.von) : "", etp.bis ? formatDate(etp.bis) : ""].filter(Boolean).join(" – ");
     card.innerHTML = `
-      <p class="u-name"><i class="ti ti-map-pin"></i>${escapeHtml(etp.titel || "Ohne Namen")}</p>
+      <p class="u-name"><i class="ti ti-map-pin"></i>${escapeHtml(etappenLabel(trip, etp))}</p>
       ${zeitraum ? `<p class="u-dates">${escapeHtml(zeitraum)}</p>` : ""}
     `;
     card.onclick = () => {
@@ -1869,6 +1916,15 @@ function reassignSort(list) {
   list.forEach((item, idx) => { item.sort = idx; });
 }
 
+/** Einheitliche Beschriftung für eine Ferien-Etappe: "1: Zermatt" statt nur
+ *  "Zermatt" - hilft bei mehreren Etappen, schnell die Reihenfolge zu sehen
+ *  (z. B. in Dropdowns, Chips und Karten). */
+function etappenLabel(trip, etappe) {
+  const idx = (trip.etappen || []).findIndex((e) => e.id === etappe.id);
+  const nr = idx >= 0 ? idx + 1 + ": " : "";
+  return nr + (etappe.titel || "Ohne Namen");
+}
+
 function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, onChange) {
   const row = document.createElement("div");
   row.className = "item-row" + (item.erledigt ? " done" : "") + (item.nichtRelevant ? " not-relevant" : "") + (item.prioritaet ? " priority" : "");
@@ -1935,28 +1991,84 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     saveChange();
     onChange();
   });
-
   row.appendChild(cb);
 
-  if (showTermin && item.termin !== undefined && item.termin !== null && item.termin !== "") {
-    const badge = document.createElement("span");
-    badge.className = "termin-badge";
-    badge.textContent = formatTermin(item.termin);
-    row.appendChild(badge);
-  }
+  // --- Aktions-Icons direkt nach der Checkbox (Zeilenanfang), damit man beim
+  // schnellen Durchgehen einer Liste mit der Maus nicht jedes Mal ans
+  // Zeilenende fahren muss. Text/Badges folgen danach im flexiblen Bereich. ---
+  const actionCluster = document.createElement("span");
+  actionCluster.className = "item-row-actions";
 
-  const label = document.createElement("span");
-  label.textContent = item.text;
-  label.style.flex = "1";
-  row.appendChild(label);
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "icon-btn";
+  editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
+  editBtn.title = "Text/Kategorie bearbeiten";
+  editBtn.onclick = () => {
+    const inDb = listKey === "packliste" && ensureArtikelDatenbank().some((a) => a.text === item.text);
+    if (inDb) {
+      const editHier = confirm(
+        `"${item.text}" ist mit der Artikel-Datenbank verknüpft.\n\nOK = nur diesen Packliste-Eintrag (nur für diese Ferien) ändern.\nAbbrechen = stattdessen den Artikel in der zentralen Datenbank bearbeiten (gilt dann für alle Ferien, auch künftige).`
+      );
+      if (!editHier) {
+        const katalog = ensureArtikelDatenbank();
+        const dbEntry = katalog.find((a) => a.text === item.text);
+        if (dbEntry) {
+          editingArtikelId = dbEntry.id || dbEntry.text;
+          openModal(
+            renderArtikelForm(katalog, () => { closeModal(); onChange(); }, dbEntry),
+            () => { editingArtikelId = null; }
+          );
+        }
+        return;
+      }
+    }
+    const neuerText = prompt("Text (gilt nur für diese Ferien):", item.text);
+    if (neuerText === null) return;
+    const neueKategorie = prompt("Kategorie:", item.kategorie || "Allgemein");
+    if (neueKategorie === null) return;
+    item.text = neuerText.trim() || item.text;
+    item.kategorie = neueKategorie.trim() || "Allgemein";
+    saveChange();
+    onChange();
+  };
+  actionCluster.appendChild(editBtn);
 
-  if (item.erfassungsTyp === "einmalig" || item.erfassungsTyp === "fix") {
-    const typBadge = document.createElement("span");
-    typBadge.className = "erfassungstyp-badge" + (item.erfassungsTyp === "fix" ? " fix" : "");
-    typBadge.title = item.erfassungsTyp === "fix" ? "Fix - auch in der zentralen Vorlage" : "Einmalig - nur für diese Ferien";
-    typBadge.textContent = item.erfassungsTyp === "fix" ? "Fix" : "Einmalig";
-    row.appendChild(typBadge);
-  }
+  const prioBtn = document.createElement("button");
+  prioBtn.type = "button";
+  prioBtn.className = "icon-btn priority-btn" + (item.prioritaet ? " active" : "");
+  prioBtn.innerHTML = `<i class="ti ${item.prioritaet ? "ti-flag-filled" : "ti-flag"}"></i>`;
+  prioBtn.title = item.prioritaet ? "Priorität entfernen" : "Als Priorität markieren";
+  prioBtn.onclick = () => {
+    item.prioritaet = !item.prioritaet;
+    saveChange();
+    onChange();
+  };
+  actionCluster.appendChild(prioBtn);
+
+  const nrBtn = document.createElement("button");
+  nrBtn.type = "button";
+  nrBtn.className = "icon-btn" + (item.nichtRelevant ? " active" : "");
+  nrBtn.innerHTML = `<i class="ti ti-circle-minus"></i>`;
+  nrBtn.title = item.nichtRelevant ? "Als relevant markieren" : "Als nicht relevant markieren";
+  nrBtn.onclick = () => {
+    item.nichtRelevant = !item.nichtRelevant;
+    if (item.nichtRelevant) item.erledigt = false;
+    saveChange();
+    onChange();
+  };
+  actionCluster.appendChild(nrBtn);
+
+  const bell = document.createElement("button");
+  bell.type = "button";
+  bell.className = "bell-btn" + (item.erinnerung ? " active" : "");
+  bell.innerHTML = `<i class="ti ${item.erinnerung ? "ti-bell-filled" : "ti-bell"}"></i>`;
+  bell.title = item.erinnerung ? `Erinnerung: ${new Date(item.erinnerung).toLocaleString("de-CH")}` : "Erinnerung setzen";
+  bell.onclick = () => {
+    editingReminderId = editingReminderId === item.id ? null : item.id;
+    onChange();
+  };
+  actionCluster.appendChild(bell);
 
   if (listKey === "packliste" && !ensureArtikelDatenbank().some((a) => a.text === item.text)) {
     const dbBtn = document.createElement("button");
@@ -1972,61 +2084,8 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
         () => { editingArtikelId = null; }
       );
     };
-    row.appendChild(dbBtn);
+    actionCluster.appendChild(dbBtn);
   }
-
-  const bell = document.createElement("button");
-  bell.type = "button";
-  bell.className = "bell-btn" + (item.erinnerung ? " active" : "");
-  bell.innerHTML = `<i class="ti ${item.erinnerung ? "ti-bell-filled" : "ti-bell"}"></i>`;
-  bell.title = item.erinnerung ? `Erinnerung: ${new Date(item.erinnerung).toLocaleString("de-CH")}` : "Erinnerung setzen";
-  bell.onclick = () => {
-    editingReminderId = editingReminderId === item.id ? null : item.id;
-    onChange();
-  };
-  row.appendChild(bell);
-
-  const prioBtn = document.createElement("button");
-  prioBtn.type = "button";
-  prioBtn.className = "icon-btn priority-btn" + (item.prioritaet ? " active" : "");
-  prioBtn.innerHTML = `<i class="ti ${item.prioritaet ? "ti-flag-filled" : "ti-flag"}"></i>`;
-  prioBtn.title = item.prioritaet ? "Priorität entfernen" : "Als Priorität markieren";
-  prioBtn.onclick = () => {
-    item.prioritaet = !item.prioritaet;
-    saveChange();
-    onChange();
-  };
-  row.appendChild(prioBtn);
-
-  const nrBtn = document.createElement("button");
-  nrBtn.type = "button";
-  nrBtn.className = "icon-btn" + (item.nichtRelevant ? " active" : "");
-  nrBtn.innerHTML = `<i class="ti ti-circle-minus"></i>`;
-  nrBtn.title = item.nichtRelevant ? "Als relevant markieren" : "Als nicht relevant markieren";
-  nrBtn.onclick = () => {
-    item.nichtRelevant = !item.nichtRelevant;
-    if (item.nichtRelevant) item.erledigt = false;
-    saveChange();
-    onChange();
-  };
-  row.appendChild(nrBtn);
-
-  const editBtn = document.createElement("button");
-  editBtn.type = "button";
-  editBtn.className = "icon-btn";
-  editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
-  editBtn.title = "Text/Kategorie bearbeiten";
-  editBtn.onclick = () => {
-    const neuerText = prompt("Text:", item.text);
-    if (neuerText === null) return;
-    const neueKategorie = prompt("Kategorie:", item.kategorie || "Allgemein");
-    if (neueKategorie === null) return;
-    item.text = neuerText.trim() || item.text;
-    item.kategorie = neueKategorie.trim() || "Allgemein";
-    saveChange();
-    onChange();
-  };
-  row.appendChild(editBtn);
 
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
@@ -2042,7 +2101,29 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     saveChange();
     onChange();
   };
-  row.appendChild(deleteBtn);
+  actionCluster.appendChild(deleteBtn);
+
+  row.appendChild(actionCluster);
+
+  if (showTermin && item.termin !== undefined && item.termin !== null && item.termin !== "") {
+    const badge = document.createElement("span");
+    badge.className = "termin-badge";
+    badge.textContent = formatTermin(item.termin);
+    row.appendChild(badge);
+  }
+
+  const label = document.createElement("span");
+  label.textContent = item.text;
+  label.style.flex = "1";
+  row.appendChild(label);
+
+  if (item.erfassungsTyp === "einmalig" || item.erfassungsTyp === "fix") {
+    const typBadge = document.createElement("span");
+    typBadge.className = "erfassungstyp-badge" + (item.erfassungsTyp === "fix" ? " fix" : "") + " manual-entry-badge";
+    typBadge.title = item.erfassungsTyp === "fix" ? "Fix - auch in der zentralen Vorlage" : "Einmalig - nur für diese Ferien";
+    typBadge.innerHTML = `<i class="ti ti-hand-click"></i> ${item.erfassungsTyp === "fix" ? "Fix" : "Einmalig"}`;
+    row.appendChild(typBadge);
+  }
 
   return row;
 }
@@ -2223,6 +2304,8 @@ let editingArtikelId = null; // null | "__neu__" | id
 // Ansicht der Artikel-Datenbank: "liste" (klassische Gruppen-Liste) oder
 // "matrix" (Tabelle Artikel x Merkmale, 1:1 nach Excel-Master) - nur im Speicher.
 let artikelViewMode = "liste";
+// Matrix-Filter: "alle" | "aufPackliste" | "nichtAufPackliste"
+let artikelMatrixFilter = "alle";
 
 function renderArtikelTab(el) {
   closeModal();
@@ -2252,7 +2335,15 @@ function renderArtikelTab(el) {
   if (!katalog.length) {
     list.innerHTML = `<p class="hint-empty">Noch keine Artikel im Katalog.</p>`;
   } else if (artikelViewMode === "matrix") {
-    list.appendChild(renderArtikelMatrix(katalog, trip, () => renderArtikelTab(el)));
+    const matrixHeaderResult = collapsibleHeader(
+      "artikel:matrix",
+      `<i class="ti ti-table"></i> Matrix (${katalog.length})`,
+      () => renderArtikelTab(el)
+    );
+    list.appendChild(matrixHeaderResult.header);
+    if (!matrixHeaderResult.isCollapsed) {
+      list.appendChild(renderArtikelMatrix(katalog, trip, () => renderArtikelTab(el)));
+    }
   } else {
     const sorted = [...katalog].sort((a, b) => getArtikelKategorien(a).join(",").localeCompare(getArtikelKategorien(b).join(",")) || a.text.localeCompare(b.text, "de"));
     const byKategorie = [];
@@ -2339,19 +2430,47 @@ function renderArtikelTab(el) {
  *  potenziell vielen Merkmal-Spalten horizontal scrollbar. */
 function renderArtikelMatrix(katalog, trip, onChange) {
   const defs = getMerkmaleDefs();
+  const outer = document.createElement("div");
+
+  if (trip) {
+    const filterRow = document.createElement("div");
+    filterRow.className = "chip-row";
+    filterRow.style.marginBottom = "6px";
+    [
+      { key: "alle", label: "Alle", icon: "ti-list" },
+      { key: "aufPackliste", label: "Auf Packliste", icon: "ti-checkbox" },
+      { key: "nichtAufPackliste", label: "Nicht auf Packliste", icon: "ti-square" },
+    ].forEach((f) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip" + (artikelMatrixFilter === f.key ? " active" : "");
+      chip.innerHTML = `<i class="ti ${f.icon}"></i>${f.label}`;
+      chip.onclick = () => { artikelMatrixFilter = f.key; onChange(); };
+      filterRow.appendChild(chip);
+    });
+    outer.appendChild(filterRow);
+  } else {
+    artikelMatrixFilter = "alle";
+  }
+
   const wrap = document.createElement("div");
   wrap.className = "matrix-scroll";
+  outer.appendChild(wrap);
 
   const table = document.createElement("table");
   table.className = "artikel-matrix";
 
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  headRow.innerHTML = `<th class="matrix-artikel-col">Artikel</th>`;
+  headRow.innerHTML = `<th class="matrix-artikel-col">Artikel</th><th class="matrix-bemerkung-col">Bemerkung</th>`;
   defs.forEach((m) => {
     const th = document.createElement("th");
     th.title = m.label;
     th.innerHTML = `<i class="ti ${m.icon}"></i>`;
+    // Tooltip (title) hilft am PC; zusätzlich per Klick/Tap anzeigen, da
+    // Touch-Geräte kein Mouseover kennen.
+    th.style.cursor = "help";
+    th.onclick = () => alert(m.label);
     headRow.appendChild(th);
   });
   headRow.innerHTML += `<th></th>`;
@@ -2360,7 +2479,12 @@ function renderArtikelMatrix(katalog, trip, onChange) {
 
   const tbody = document.createElement("tbody");
 
-  const sorted = [...katalog].sort((a, b) => getArtikelKategorien(a).join(",").localeCompare(getArtikelKategorien(b).join(",")) || a.text.localeCompare(b.text, "de"));
+  const gefiltert = katalog.filter((a) => {
+    if (artikelMatrixFilter === "alle" || !trip) return true;
+    const aufPackliste = trip.packliste.some((p) => p.text === a.text);
+    return artikelMatrixFilter === "aufPackliste" ? aufPackliste : !aufPackliste;
+  });
+  const sorted = [...gefiltert].sort((a, b) => getArtikelKategorien(a).join(",").localeCompare(getArtikelKategorien(b).join(",")) || a.text.localeCompare(b.text, "de"));
   const byKategorie = [];
   const byName = {};
   sorted.forEach((a) => {
@@ -2371,11 +2495,21 @@ function renderArtikelMatrix(katalog, trip, onChange) {
   });
   byKategorie.sort((g1, g2) => g1.kategorie.localeCompare(g2.kategorie, "de"));
 
+  if (!byKategorie.length) {
+    const emptyRow = document.createElement("tr");
+    const emptyCell = document.createElement("td");
+    emptyCell.colSpan = defs.length + 3;
+    emptyCell.className = "hint-empty";
+    emptyCell.textContent = "Keine Artikel für diesen Filter.";
+    emptyRow.appendChild(emptyCell);
+    tbody.appendChild(emptyRow);
+  }
+
   byKategorie.forEach((g) => {
     const katRow = document.createElement("tr");
     katRow.className = "matrix-kategorie-row";
     const katCell = document.createElement("td");
-    katCell.colSpan = defs.length + 2;
+    katCell.colSpan = defs.length + 3;
     katCell.innerHTML = `<i class="ti ${categoryIcon(g.kategorie)}"></i> ${escapeHtml(g.kategorie)}`;
     katRow.appendChild(katCell);
     tbody.appendChild(katRow);
@@ -2383,10 +2517,16 @@ function renderArtikelMatrix(katalog, trip, onChange) {
     g.items.forEach((a) => {
       const alreadyOnPackliste = !!(trip && trip.packliste.some((p) => p.text === a.text));
       const row = document.createElement("tr");
+      if (alreadyOnPackliste) row.className = "matrix-row-on-packliste";
       const nameCell = document.createElement("td");
       nameCell.className = "matrix-artikel-col";
       nameCell.innerHTML = `${escapeHtml(a.text)}${alreadyOnPackliste ? ` <span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i></span>` : ""}`;
       row.appendChild(nameCell);
+
+      const bemerkungCell = document.createElement("td");
+      bemerkungCell.className = "matrix-bemerkung-col";
+      bemerkungCell.textContent = a.bemerkung || "";
+      row.appendChild(bemerkungCell);
 
       const selected = new Set(a.merkmale || []);
       defs.forEach((m) => {
@@ -2453,7 +2593,7 @@ function renderArtikelMatrix(katalog, trip, onChange) {
 
   table.appendChild(tbody);
   wrap.appendChild(table);
-  return wrap;
+  return outer;
 }
 
 function renderArtikelForm(katalog, onChange, prefill) {
@@ -2808,7 +2948,7 @@ function renderProgrammTab(el, trip) {
       <select id="idee-etappen-filter">
         <option value="alle" ${ideenEtappenFilter === "alle" ? "selected" : ""}>Alle Etappen</option>
         <option value="__ohne__" ${ideenEtappenFilter === "__ohne__" ? "selected" : ""}>Ohne Etappe</option>
-        ${trip.etappen.map((e) => `<option value="${escapeHtml(e.id)}" ${ideenEtappenFilter === e.id ? "selected" : ""}>${escapeHtml(e.titel)}</option>`).join("")}
+        ${trip.etappen.map((e) => `<option value="${escapeHtml(e.id)}" ${ideenEtappenFilter === e.id ? "selected" : ""}>${escapeHtml(etappenLabel(trip, e))}</option>`).join("")}
       </select>
     `;
     filterRow.querySelector("select").onchange = (e) => {
@@ -3043,7 +3183,7 @@ function renderIdeeForm(trip, onChange) {
         const chip = document.createElement("button");
         chip.type = "button";
         chip.className = "chip" + (selectedEtappenIds.has(e.id) ? " active" : "");
-        chip.textContent = e.titel;
+        chip.textContent = etappenLabel(trip, e);
         chip.onclick = () => {
           if (selectedEtappenIds.has(e.id)) selectedEtappenIds.delete(e.id);
           else selectedEtappenIds.add(e.id);
