@@ -240,11 +240,32 @@ main#tab-content {
   border-color: var(--green);
 }
 
-.merkmale-gruppe { margin-bottom: 12px; }
+.merkmale-gruppe { margin-bottom: 14px; }
 .merkmale-gruppe:last-child { margin-bottom: 0; }
-.merkmale-gruppe-titel { font-weight: 600; text-transform: none; margin-bottom: 4px !important; }
+.merkmale-gruppe-titel {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 10px !important;
+  color: var(--green) !important;
+  background: var(--green-light);
+  padding: 3px 9px;
+  border-radius: 999px;
+  margin: 0 0 6px !important;
+}
 
-.list-toolbar { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+.list-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 4px; }
+.list-toolbar select {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  padding: 4px 6px;
+  color: #222;
+  background: white;
+  margin-right: auto;
+}
 
 .category { margin-bottom: 2px; }
 .category-header {
@@ -278,6 +299,8 @@ main#tab-content {
 }
 .item-row span { font-size: 12px; }
 .item-row.done span { color: var(--grey); text-decoration: line-through; font-size: 11px; }
+.item-row.not-relevant span { color: var(--grey); font-style: italic; }
+.item-row.not-relevant { opacity: 0.65; }
 
 .add-form {
   display: flex;
@@ -363,6 +386,7 @@ main#tab-content {
 [data-theme="dark"] .field-form textarea,
 [data-theme="dark"] .add-form input[type="text"],
 [data-theme="dark"] .add-form select,
+[data-theme="dark"] .list-toolbar select,
 [data-theme="dark"] .reminder-form input {
   background: #1f2227;
   color: #eee;
@@ -482,6 +506,7 @@ main#tab-content {
   flex-shrink: 0;
 }
 .icon-btn.danger { color: #c0392b; }
+.icon-btn.active { color: var(--amber-dark); }
 
 [data-theme="dark"] .trip-switcher { background: #23262b; color: #eee; border-color: #2a2d33; }
 
@@ -515,3 +540,82 @@ main#tab-content {
 }
 .tab-order-row .move-buttons button:disabled { opacity: 0.25; }
 [data-theme="dark"] .tab-order-row { border-color: #33373d; }
+
+/* ===========================================================
+   POPUP / MODAL (z. B. Artikel-Bearbeitung)
+   =========================================================== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 1000;
+  padding: 0;
+}
+.modal-card {
+  position: relative;
+  background: white;
+  border-radius: 16px 16px 0 0;
+  padding: 16px 14px 20px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 88vh;
+  overflow-y: auto;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.2);
+}
+.modal-close-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #f0f0f0;
+  color: #444;
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+[data-theme="dark"] .modal-card { background: #1f2227; color: #eee; }
+[data-theme="dark"] .modal-close-btn { background: #2a2d33; color: #eee; }
+
+@media (min-width: 700px) {
+  .modal-overlay { align-items: center; padding: 20px; }
+  .modal-card { border-radius: 16px; padding: 20px 20px 22px; }
+}
+
+/* ===========================================================
+   "NACH OBEN"-BUTTON
+   =========================================================== */
+.scroll-top-btn {
+  position: fixed;
+  right: 14px;
+  bottom: 74px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--green);
+  color: white;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 500;
+}
+.scroll-top-btn.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
+
+@media (min-width: 900px) {
+  .scroll-top-btn { bottom: 24px; }
+}
