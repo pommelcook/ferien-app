@@ -39,7 +39,6 @@ function setTheme(theme) {
 function getTheme() {
   return document.documentElement.getAttribute("data-theme") || "light";
 }
-
 async function main() {
   initTheme();
   registerServiceWorker();
@@ -93,7 +92,6 @@ function getCurrentTrip() {
   const data = getData();
   return data.ferien.find((f) => f.id === currentTripId) || null;
 }
-
 /** Immer sichtbarer Umschalter im Kopfbereich, um schnell zwischen Ferien
  *  zu wechseln - egal, in welchem Tab man gerade ist. */
 function renderTripSwitcher() {
@@ -141,6 +139,10 @@ function render() {
   if (currentTab === "start") return renderStartTab(el, trip);
   if (currentTab === "ferien") return renderFerienTab(el, trip);
   if (currentTab === "mehr") return renderMehrTab(el);
+  if (currentTab === "artikel") return renderArtikelTab(el);
+  if (currentTab === "merkmale") return renderMerkmaleTab(el);
+  if (currentTab === "programm") return renderProgrammTab(el, trip);
+  if (currentTab === "finanzen") return renderFinanzenTab(el, trip);
 
   if (!trip) {
     el.innerHTML = `<p class="hint">Noch keine Ferien angelegt.<br />Wechsle zum Tab "Ferien", um eine anzulegen.</p>`;
@@ -149,7 +151,6 @@ function render() {
   if (currentTab === "packliste") return renderListTab(el, trip, "packliste", "🎒", "Neuer Artikel...");
   if (currentTab === "todo") return renderListTab(el, trip, "todo", "✅", "Neuer Punkt...");
 }
-
 // ===========================================================
 // TAB: START (Dashboard - schneller Überblick)
 // ===========================================================
@@ -180,8 +181,7 @@ function renderStartTab(el, trip) {
     .sort((a, b) => Number(a.termin) - Number(b.termin))
     .slice(0, 3);
 
-  const aktiveMerkmale = MERKMALE_DEFS.filter((m) => trip.merkmale && trip.merkmale[m.key]);
-
+  const aktiveMerkmale = getMerkmaleDefs().filter((m) => trip.merkmale && trip.merkmale[m.key]);
   el.innerHTML = `
     <section class="panel dashboard-hero">
       <p class="hint-small">${escapeHtml(trip.titel)}</p>
@@ -319,7 +319,6 @@ function formatTermin(t) {
   if (n > 0) return `+${n} Tag${n === 1 ? "" : "e"}`;
   return `${Math.abs(n)} Tag${Math.abs(n) === 1 ? "" : "e"} vorher`;
 }
-
 // ===========================================================
 // TAB: FERIEN (Reise wählen/anlegen + Merkmale einstellen)
 // ===========================================================
@@ -389,7 +388,7 @@ function renderFerienTab(el, trip) {
     }
 
     const chipRow = document.getElementById("merkmale-chips");
-    MERKMALE_DEFS.forEach((m) => {
+    getMerkmaleDefs().forEach((m) => {
       const active = !!(trip.merkmale && trip.merkmale[m.key]);
       const chip = document.createElement("button");
       chip.className = "chip" + (active ? " active" : "");
@@ -459,7 +458,6 @@ function renderTripEditForm(trip, onChange) {
 
   return form;
 }
-
 // ===========================================================
 // UNTERKÜNFTE (Kacheln + Formular, direkt am Handy bearbeitbar)
 // ===========================================================
@@ -568,7 +566,6 @@ function renderUnterkunftForm(trip, onChange) {
 
   return form;
 }
-
 function createNewTrip() {
   const titel = prompt("Name der neuen Ferien (z. B. 'Herbstferien 2026 Tessin'):");
   if (!titel) return;
@@ -584,10 +581,37 @@ function createNewTrip() {
     packliste: [],
     todo: [],
     unterkuenfte: [],
+    programm: [],
+    finanzen: [],
   });
   saveChange();
   currentTripId = id;
   render();
+}
+
+/** Liest die Merkmal-Definitionen aus den Daten (falls der Nutzer sie über
+ *  "Merkmale verwalten" bereits angepasst hat), sonst die fest im Code
+ *  hinterlegten Standard-Merkmale (MERKMALE_DEFS aus config.js). */
+function getMerkmaleDefs() {
+  const data = getData();
+  if (data && data.merkmaleDefs && data.merkmaleDefs.length) return data.merkmaleDefs;
+  return MERKMALE_DEFS;
+}
+
+/** Stellt sicher, dass die Merkmal-Liste in den Daten existiert (einmalig
+ *  aus den Standardwerten kopiert), damit sie bearbeitbar wird. */
+function ensureMerkmaleDefs() {
+  const data = getData();
+  if (!data.merkmaleDefs || !data.merkmaleDefs.length) {
+    data.merkmaleDefs = MERKMALE_DEFS.map((m) => ({ ...m }));
+  }
+  return data.merkmaleDefs;
+}
+
+function ensureArtikelDatenbank() {
+  const data = getData();
+  data.artikelDatenbank = data.artikelDatenbank || [];
+  return data.artikelDatenbank;
 }
 // ===========================================================
 // TAB: PACKLISTE / TO-DO (kategorisierte Liste mit Filtern)
@@ -698,7 +722,6 @@ function renderListTab(el, trip, key, icon, placeholder) {
     renderListTab(el, trip, key, icon, placeholder);
   });
 }
-
 /** Gruppiert Items entweder nach "kategorie" (Text) oder "termin" (Tage vor Abreise),
  *  und sortiert innerhalb jeder Gruppe entweder manuell (item.sort) oder A-Z. */
 function groupItems(items, mode, sort) {
@@ -768,7 +791,6 @@ function renderCategory(trip, listKey, groupName, groupItemsList, showTermin, on
 function reassignSort(list) {
   list.forEach((item, idx) => { item.sort = idx; });
 }
-
 function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, onChange) {
   const row = document.createElement("div");
   row.className = "item-row" + (item.erledigt ? " done" : "");
@@ -895,7 +917,6 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
 
   return row;
 }
-
 function reminderForm(item, onChange) {
   const form = document.createElement("form");
   form.className = "reminder-form";
@@ -965,7 +986,6 @@ function checkReminders() {
   });
   if (changed) saveChange();
 }
-
 // ===========================================================
 // TAB: MEHR
 // ===========================================================
@@ -996,6 +1016,16 @@ function renderMehrTab(el) {
       <p class="hint-small">Status: ${notifLabel}. Erinnerungen kannst du pro Artikel/To-Do über das Glocken-Symbol setzen. Funktioniert nur, solange die App in einem Browser-Tab geöffnet ist (bzw. kurz danach) - echtes Push bei geschlossener App bräuchte einen eigenen Server, den diese rein statische App bewusst nicht hat.</p>
       ${notifSupported && notifPermission !== "granted" ? `<button id="enable-notif" class="secondary"><i class="ti ti-bell"></i> Benachrichtigungen aktivieren</button>` : ""}
     </section>
+    <section class="panel">
+      <h2><i class="ti ti-settings"></i> Verwaltung</h2>
+      <p class="hint-small">Zentrale Kataloge und zusätzliche Register pro Ferien - die "Admin-Sicht" auf alle Daten.</p>
+      <div class="verwaltung-grid">
+        <button class="secondary" data-goto="artikel"><i class="ti ti-list-details"></i> Artikel-Datenbank</button>
+        <button class="secondary" data-goto="programm"><i class="ti ti-calendar-event"></i> Programm</button>
+        <button class="secondary" data-goto="finanzen"><i class="ti ti-cash"></i> Finanzen</button>
+        <button class="secondary" data-goto="merkmale"><i class="ti ti-tags"></i> Merkmale verwalten</button>
+      </div>
+    </section>
     <p class="version-footer">Ferien-App v${APP_VERSION} &middot; Stand ${APP_BUILD_DATE}</p>
   `;
   document.getElementById("logout-button").onclick = logout;
@@ -1009,6 +1039,505 @@ function renderMehrTab(el) {
       checkReminders();
     };
   }
+  document.querySelectorAll("[data-goto]").forEach((b) => {
+    b.onclick = () => { currentTab = b.dataset.goto; render(); };
+  });
+}
+// ===========================================================
+// VERWALTUNG: ARTIKEL-DATENBANK (zentraler Katalog, unabhängig von Ferien)
+// ===========================================================
+let editingArtikelId = null; // null | "__neu__" | id
+
+function renderArtikelTab(el) {
+  const katalog = ensureArtikelDatenbank();
+  const trip = getCurrentTrip();
+
+  el.innerHTML = `
+    <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
+    <section class="panel">
+      <h2><i class="ti ti-list-details"></i> Artikel-Datenbank</h2>
+      <p class="hint-small">Zentraler Katalog aller Artikel, unabhängig von einzelnen Ferien. Von hier lässt sich ein Artikel direkt in die Packliste der aktuell gewählten Ferien übernehmen.</p>
+      <div id="artikel-list"></div>
+      <button id="new-artikel-button" class="secondary"><i class="ti ti-plus"></i> Neuer Artikel</button>
+    </section>
+    <div id="artikel-form-container"></div>
+  `;
+
+  document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
+
+  const list = document.getElementById("artikel-list");
+  if (!katalog.length) {
+    list.innerHTML = `<p class="hint-empty">Noch keine Artikel im Katalog.</p>`;
+  } else {
+    const sorted = [...katalog].sort((a, b) => (a.kategorie || "").localeCompare(b.kategorie || "") || a.text.localeCompare(b.text, "de"));
+    sorted.forEach((a) => {
+      const merkmaleLabels = (a.merkmale || []).map((k) => (getMerkmaleDefs().find((m) => m.key === k) || {}).label).filter(Boolean);
+      const row = document.createElement("div");
+      row.className = "item-row";
+      row.innerHTML = `
+        <i class="ti ${categoryIcon(a.kategorie)} category-icon"></i>
+        <span style="flex:1">${escapeHtml(a.text)}<br /><span class="hint-small" style="margin:0">${escapeHtml(a.kategorie || "Allgemein")}${merkmaleLabels.length ? " · " + merkmaleLabels.map(escapeHtml).join(", ") : ""}</span></span>
+      `;
+      if (trip) {
+        const addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.className = "icon-btn";
+        addBtn.innerHTML = `<i class="ti ti-plus"></i>`;
+        addBtn.title = `Zu Packliste von "${trip.titel}" hinzufügen`;
+        addBtn.onclick = () => {
+          trip.packliste.push({
+            id: "i" + Date.now() + Math.random().toString(36).slice(2, 6),
+            text: a.text,
+            erledigt: false,
+            kategorie: a.kategorie || "Allgemein",
+            sort: trip.packliste.length,
+            ...(a.merkmale && a.merkmale.length ? { nurWenn: a.merkmale } : {}),
+          });
+          saveChange();
+          alert(`"${a.text}" wurde zur Packliste von "${trip.titel}" hinzugefügt.`);
+        };
+        row.appendChild(addBtn);
+      }
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "icon-btn";
+      editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
+      editBtn.onclick = () => { editingArtikelId = a.id; renderArtikelTab(el); };
+      row.appendChild(editBtn);
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "icon-btn danger";
+      delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+      delBtn.onclick = () => {
+        if (!confirm(`"${a.text}" wirklich aus dem Katalog löschen?`)) return;
+        const data = getData();
+        data.artikelDatenbank = data.artikelDatenbank.filter((x) => x.id !== a.id);
+        saveChange();
+        renderArtikelTab(el);
+      };
+      row.appendChild(delBtn);
+      list.appendChild(row);
+    });
+  }
+
+  document.getElementById("new-artikel-button").onclick = () => { editingArtikelId = "__neu__"; renderArtikelTab(el); };
+
+  const formContainer = document.getElementById("artikel-form-container");
+  if (editingArtikelId) {
+    formContainer.appendChild(renderArtikelForm(katalog, () => renderArtikelTab(el)));
+  }
+}
+function renderArtikelForm(katalog, onChange) {
+  const isNew = editingArtikelId === "__neu__";
+  const existing = isNew ? null : katalog.find((a) => a.id === editingArtikelId);
+  const a = existing || { text: "", kategorie: "", merkmale: [] };
+
+  const form = document.createElement("form");
+  form.className = "field-form panel";
+  form.innerHTML = `
+    <label>Artikel<input type="text" name="text" value="${escapeHtml(a.text)}" required /></label>
+    <label>Kategorie<input type="text" name="kategorie" value="${escapeHtml(a.kategorie)}" placeholder="z. B. Kleider" /></label>
+    <label>Nur bei Merkmalen (optional)</label>
+    <div class="chip-row" id="artikel-merkmale-chips"></div>
+    <div class="form-actions">
+      <button type="submit"><i class="ti ti-check"></i> Speichern</button>
+      <button type="button" id="cancel-artikel" class="secondary">Abbrechen</button>
+      ${existing ? `<button type="button" id="delete-artikel" class="danger"><i class="ti ti-trash"></i></button>` : ""}
+    </div>
+  `;
+
+  const selectedMerkmale = new Set(a.merkmale || []);
+  const chipRow = form.querySelector("#artikel-merkmale-chips");
+  getMerkmaleDefs().forEach((m) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip" + (selectedMerkmale.has(m.key) ? " active" : "");
+    chip.innerHTML = `<i class="ti ${m.icon}"></i>${m.label}`;
+    chip.onclick = () => {
+      if (selectedMerkmale.has(m.key)) selectedMerkmale.delete(m.key);
+      else selectedMerkmale.add(m.key);
+      chip.classList.toggle("active");
+    };
+    chipRow.appendChild(chip);
+  });
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const values = {
+      text: fd.get("text").trim(),
+      kategorie: fd.get("kategorie").trim() || "Allgemein",
+      merkmale: [...selectedMerkmale],
+    };
+    if (!values.text) return;
+    if (isNew) {
+      katalog.push({ id: "art" + Date.now() + Math.random().toString(36).slice(2, 6), ...values });
+    } else {
+      Object.assign(existing, values);
+    }
+    saveChange();
+    editingArtikelId = null;
+    onChange();
+  });
+
+  form.querySelector("#cancel-artikel").onclick = () => { editingArtikelId = null; onChange(); };
+  const deleteBtn = form.querySelector("#delete-artikel");
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      if (!confirm(`"${existing.text}" wirklich löschen?`)) return;
+      const data = getData();
+      data.artikelDatenbank = data.artikelDatenbank.filter((x) => x.id !== existing.id);
+      saveChange();
+      editingArtikelId = null;
+      onChange();
+    };
+  }
+
+  return form;
+}
+// ===========================================================
+// VERWALTUNG: MERKMALE (bislang fest im Code, jetzt bearbeitbar)
+// ===========================================================
+let editingMerkmalKey = null; // null | "__neu__" | key
+
+function renderMerkmaleTab(el) {
+  const defs = ensureMerkmaleDefs();
+
+  el.innerHTML = `
+    <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
+    <section class="panel">
+      <h2><i class="ti ti-tags"></i> Merkmale verwalten</h2>
+      <p class="hint-small">Merkmale bestimmen, welche Artikel/To-Dos je nach Ferienart automatisch angezeigt werden (z. B. "Winter", "Ausland").</p>
+      <div id="merkmal-list"></div>
+      <button id="new-merkmal-button" class="secondary"><i class="ti ti-plus"></i> Neues Merkmal</button>
+    </section>
+    <div id="merkmal-form-container"></div>
+  `;
+
+  document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
+
+  const list = document.getElementById("merkmal-list");
+  defs.forEach((m) => {
+    const row = document.createElement("div");
+    row.className = "item-row";
+    row.innerHTML = `<i class="ti ${m.icon} category-icon"></i><span style="flex:1">${escapeHtml(m.label)}</span>`;
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "icon-btn";
+    editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
+    editBtn.onclick = () => { editingMerkmalKey = m.key; renderMerkmaleTab(el); };
+    row.appendChild(editBtn);
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "icon-btn danger";
+    delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+    delBtn.onclick = () => {
+      if (!confirm(`Merkmal "${m.label}" wirklich löschen? Bestehende Zuordnungen bei Artikeln/Ferien bleiben als ungenutzter Schlüssel erhalten.`)) return;
+      const data = getData();
+      data.merkmaleDefs = data.merkmaleDefs.filter((x) => x.key !== m.key);
+      saveChange();
+      renderMerkmaleTab(el);
+    };
+    row.appendChild(delBtn);
+    list.appendChild(row);
+  });
+
+  document.getElementById("new-merkmal-button").onclick = () => { editingMerkmalKey = "__neu__"; renderMerkmaleTab(el); };
+
+  const formContainer = document.getElementById("merkmal-form-container");
+  if (editingMerkmalKey) {
+    formContainer.appendChild(renderMerkmalForm(defs, () => renderMerkmaleTab(el)));
+  }
+}
+function renderMerkmalForm(defs, onChange) {
+  const isNew = editingMerkmalKey === "__neu__";
+  const existing = isNew ? null : defs.find((m) => m.key === editingMerkmalKey);
+  const m = existing || { label: "", icon: "ti-tag" };
+
+  const form = document.createElement("form");
+  form.className = "field-form panel";
+  form.innerHTML = `
+    <label>Bezeichnung<input type="text" name="label" value="${escapeHtml(m.label)}" required /></label>
+    <label>Icon (Tabler-Icon-Name, z. B. "ti-sun")<input type="text" name="icon" value="${escapeHtml(m.icon)}" /></label>
+    <div class="form-actions">
+      <button type="submit"><i class="ti ti-check"></i> Speichern</button>
+      <button type="button" id="cancel-merkmal" class="secondary">Abbrechen</button>
+    </div>
+  `;
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const label = fd.get("label").trim();
+    const icon = fd.get("icon").trim() || "ti-tag";
+    if (!label) return;
+    if (isNew) {
+      const key = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      defs.push({ key, label, icon });
+    } else {
+      existing.label = label;
+      existing.icon = icon;
+    }
+    saveChange();
+    editingMerkmalKey = null;
+    onChange();
+  });
+
+  form.querySelector("#cancel-merkmal").onclick = () => { editingMerkmalKey = null; onChange(); };
+
+  return form;
+}
+// ===========================================================
+// TAB: PROGRAMM (Tagesprogramm/Ausflüge pro Ferien)
+// ===========================================================
+let editingProgrammId = null;
+
+function renderProgrammTab(el, trip) {
+  if (!trip) {
+    el.innerHTML = `
+      <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
+      <p class="hint">Noch keine Ferien angelegt.</p>
+    `;
+    document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
+    return;
+  }
+  trip.programm = trip.programm || [];
+
+  const sorted = [...trip.programm].sort((a, b) => (a.datum || "").localeCompare(b.datum || "") || (a.zeit || "").localeCompare(b.zeit || ""));
+
+  el.innerHTML = `
+    <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
+    <section class="panel">
+      <h2><i class="ti ti-calendar-event"></i> Programm - ${escapeHtml(trip.titel)}</h2>
+      <div id="programm-list"></div>
+      <button id="new-programm-button" class="secondary"><i class="ti ti-plus"></i> Neuer Programmpunkt</button>
+    </section>
+    <div id="programm-form-container"></div>
+  `;
+
+  document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
+
+  const list = document.getElementById("programm-list");
+  if (!sorted.length) {
+    list.innerHTML = `<p class="hint-empty">Noch kein Programm erfasst.</p>`;
+  }
+  sorted.forEach((p) => {
+    const when = [p.datum ? formatDate(p.datum) : "", p.zeit || ""].filter(Boolean).join(" ");
+    const row = document.createElement("div");
+    row.className = "item-row";
+    row.innerHTML = `
+      <span style="flex:1">
+        ${when ? `<span class="termin-badge">${escapeHtml(when)}</span> ` : ""}<strong>${escapeHtml(p.titel)}</strong>
+        ${p.ort ? `<br /><span class="hint-small" style="margin:0">${escapeHtml(p.ort)}</span>` : ""}
+      </span>
+    `;
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "icon-btn";
+    editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
+    editBtn.onclick = () => { editingProgrammId = p.id; renderProgrammTab(el, trip); };
+    row.appendChild(editBtn);
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "icon-btn danger";
+    delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+    delBtn.onclick = () => {
+      if (!confirm(`"${p.titel}" wirklich löschen?`)) return;
+      trip.programm = trip.programm.filter((x) => x.id !== p.id);
+      saveChange();
+      renderProgrammTab(el, trip);
+    };
+    row.appendChild(delBtn);
+    list.appendChild(row);
+  });
+
+  document.getElementById("new-programm-button").onclick = () => { editingProgrammId = "__neu__"; renderProgrammTab(el, trip); };
+
+  const formContainer = document.getElementById("programm-form-container");
+  if (editingProgrammId) {
+    formContainer.appendChild(renderProgrammForm(trip, () => renderProgrammTab(el, trip)));
+  }
+}
+function renderProgrammForm(trip, onChange) {
+  const isNew = editingProgrammId === "__neu__";
+  const existing = isNew ? null : trip.programm.find((p) => p.id === editingProgrammId);
+  const p = existing || { datum: "", zeit: "", titel: "", ort: "", notizen: "" };
+
+  const form = document.createElement("form");
+  form.className = "field-form panel";
+  form.innerHTML = `
+    <label>Titel<input type="text" name="titel" value="${escapeHtml(p.titel)}" required /></label>
+    <div class="field-row">
+      <label>Datum<input type="date" name="datum" value="${escapeHtml(p.datum)}" /></label>
+      <label>Zeit<input type="time" name="zeit" value="${escapeHtml(p.zeit)}" /></label>
+    </div>
+    <label>Ort<input type="text" name="ort" value="${escapeHtml(p.ort)}" /></label>
+    <label>Notizen<textarea name="notizen" rows="2">${escapeHtml(p.notizen)}</textarea></label>
+    <div class="form-actions">
+      <button type="submit"><i class="ti ti-check"></i> Speichern</button>
+      <button type="button" id="cancel-programm" class="secondary">Abbrechen</button>
+      ${existing ? `<button type="button" id="delete-programm" class="danger"><i class="ti ti-trash"></i></button>` : ""}
+    </div>
+  `;
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const values = Object.fromEntries(fd.entries());
+    if (isNew) {
+      trip.programm.push({ id: "prog" + Date.now() + Math.random().toString(36).slice(2, 6), ...values });
+    } else {
+      Object.assign(existing, values);
+    }
+    saveChange();
+    editingProgrammId = null;
+    onChange();
+  });
+
+  form.querySelector("#cancel-programm").onclick = () => { editingProgrammId = null; onChange(); };
+  const deleteBtn = form.querySelector("#delete-programm");
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      if (!confirm(`"${existing.titel}" wirklich löschen?`)) return;
+      trip.programm = trip.programm.filter((x) => x.id !== existing.id);
+      saveChange();
+      editingProgrammId = null;
+      onChange();
+    };
+  }
+
+  return form;
+}
+// ===========================================================
+// TAB: FINANZEN (Ausgaben pro Ferien)
+// ===========================================================
+let editingFinanzId = null;
+
+function renderFinanzenTab(el, trip) {
+  if (!trip) {
+    el.innerHTML = `
+      <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
+      <p class="hint">Noch keine Ferien angelegt.</p>
+    `;
+    document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
+    return;
+  }
+  trip.finanzen = trip.finanzen || [];
+
+  const sorted = [...trip.finanzen].sort((a, b) => (a.datum || "").localeCompare(b.datum || ""));
+  const totals = {};
+  sorted.forEach((f) => {
+    const w = f.waehrung || "CHF";
+    totals[w] = (totals[w] || 0) + (Number(f.betrag) || 0);
+  });
+
+  el.innerHTML = `
+    <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
+    <section class="panel">
+      <h2><i class="ti ti-cash"></i> Finanzen - ${escapeHtml(trip.titel)}</h2>
+      ${Object.keys(totals).length ? `<p class="hint-small">Total: ${Object.entries(totals).map(([w, sum]) => `${sum.toFixed(2)} ${escapeHtml(w)}`).join(" · ")}</p>` : ""}
+      <div id="finanzen-list"></div>
+      <button id="new-finanz-button" class="secondary"><i class="ti ti-plus"></i> Neue Ausgabe</button>
+    </section>
+    <div id="finanzen-form-container"></div>
+  `;
+
+  document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
+
+  const list = document.getElementById("finanzen-list");
+  if (!sorted.length) {
+    list.innerHTML = `<p class="hint-empty">Noch keine Ausgaben erfasst.</p>`;
+  }
+  sorted.forEach((f) => {
+    const row = document.createElement("div");
+    row.className = "item-row";
+    row.innerHTML = `
+      <span style="flex:1">
+        ${f.datum ? `<span class="termin-badge">${formatDate(f.datum)}</span> ` : ""}<strong>${escapeHtml(f.beschreibung)}</strong> - ${Number(f.betrag || 0).toFixed(2)} ${escapeHtml(f.waehrung || "CHF")}
+        ${f.bezahltVon || f.kategorie ? `<br /><span class="hint-small" style="margin:0">${[f.kategorie, f.bezahltVon].filter(Boolean).map(escapeHtml).join(" · ")}</span>` : ""}
+      </span>
+    `;
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "icon-btn";
+    editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
+    editBtn.onclick = () => { editingFinanzId = f.id; renderFinanzenTab(el, trip); };
+    row.appendChild(editBtn);
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "icon-btn danger";
+    delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+    delBtn.onclick = () => {
+      if (!confirm(`Eintrag "${f.beschreibung}" wirklich löschen?`)) return;
+      trip.finanzen = trip.finanzen.filter((x) => x.id !== f.id);
+      saveChange();
+      renderFinanzenTab(el, trip);
+    };
+    row.appendChild(delBtn);
+    list.appendChild(row);
+  });
+
+  document.getElementById("new-finanz-button").onclick = () => { editingFinanzId = "__neu__"; renderFinanzenTab(el, trip); };
+
+  const formContainer = document.getElementById("finanzen-form-container");
+  if (editingFinanzId) {
+    formContainer.appendChild(renderFinanzForm(trip, () => renderFinanzenTab(el, trip)));
+  }
+}
+function renderFinanzForm(trip, onChange) {
+  const isNew = editingFinanzId === "__neu__";
+  const existing = isNew ? null : trip.finanzen.find((f) => f.id === editingFinanzId);
+  const f = existing || { datum: "", beschreibung: "", betrag: "", waehrung: "CHF", kategorie: "", bezahltVon: "", notizen: "" };
+
+  const form = document.createElement("form");
+  form.className = "field-form panel";
+  form.innerHTML = `
+    <label>Beschreibung<input type="text" name="beschreibung" value="${escapeHtml(f.beschreibung)}" required /></label>
+    <div class="field-row">
+      <label>Datum<input type="date" name="datum" value="${escapeHtml(f.datum)}" /></label>
+      <label>Betrag<input type="number" step="0.01" name="betrag" value="${escapeHtml(String(f.betrag))}" /></label>
+      <label>Währung<input type="text" name="waehrung" value="${escapeHtml(f.waehrung)}" style="max-width:70px" /></label>
+    </div>
+    <div class="field-row">
+      <label>Kategorie<input type="text" name="kategorie" value="${escapeHtml(f.kategorie)}" placeholder="z. B. Verpflegung" /></label>
+      <label>Bezahlt von<input type="text" name="bezahltVon" value="${escapeHtml(f.bezahltVon)}" /></label>
+    </div>
+    <label>Notizen<textarea name="notizen" rows="2">${escapeHtml(f.notizen)}</textarea></label>
+    <div class="form-actions">
+      <button type="submit"><i class="ti ti-check"></i> Speichern</button>
+      <button type="button" id="cancel-finanz" class="secondary">Abbrechen</button>
+      ${existing ? `<button type="button" id="delete-finanz" class="danger"><i class="ti ti-trash"></i></button>` : ""}
+    </div>
+  `;
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const values = Object.fromEntries(fd.entries());
+    values.waehrung = (values.waehrung || "").trim() || "CHF";
+    if (isNew) {
+      trip.finanzen.push({ id: "fin" + Date.now() + Math.random().toString(36).slice(2, 6), ...values });
+    } else {
+      Object.assign(existing, values);
+    }
+    saveChange();
+    editingFinanzId = null;
+    onChange();
+  });
+
+  form.querySelector("#cancel-finanz").onclick = () => { editingFinanzId = null; onChange(); };
+  const deleteBtn = form.querySelector("#delete-finanz");
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      if (!confirm(`Eintrag "${existing.beschreibung}" wirklich löschen?`)) return;
+      trip.finanzen = trip.finanzen.filter((x) => x.id !== existing.id);
+      saveChange();
+      editingFinanzId = null;
+      onChange();
+    };
+  }
+
+  return form;
 }
 
 // ===========================================================
