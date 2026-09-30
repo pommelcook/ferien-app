@@ -69,7 +69,7 @@ function renderNavBars() {
 
   const sidebar = document.getElementById("sidebar-nav");
   const tabBar = document.getElementById("tab-bar-nav");
-  if (sidebar) sidebar.innerHTML = `<p class="sidebar-title">Verwalten</p>${buttonsHtml}`;
+  if (sidebar) sidebar.innerHTML = `<p class="sidebar-title">Verwalten</p>${buttonsHtml}<p class="sidebar-version">v${APP_VERSION}</p>`;
   if (tabBar) tabBar.innerHTML = buttonsHtml;
 
   document.querySelectorAll(".nav-tab").forEach((btn) => {
@@ -119,6 +119,10 @@ async function main() {
   if (!currentTripId && data.ferien.length > 0) {
     currentTripId = data.ferien[0].id;
   }
+  // Liste "Meine Ferien" ist standardmässig eingeklappt, sobald schon eine
+  // Ferien ausgewählt ist - sonst konkurriert sie optisch mit den Details
+  // der aktuellen Ferien direkt darunter.
+  if (currentTripId) collapsed.add("ferien:liste");
 
   render();
 
@@ -207,6 +211,26 @@ function openModal(innerEl, onClose) {
 function closeModal() {
   const existing = document.getElementById("app-modal-overlay");
   if (existing) existing.remove();
+}
+
+// ===========================================================
+// EINKLAPPBARE BOXEN (z. B. Merkmale/Unterkünfte im Ferien-Tab)
+// ===========================================================
+/** Baut einen klickbaren Panel-Header (Titel + Chevron), der collapseKey im
+ *  gemeinsamen "collapsed"-Set umschaltet. Rückgabe: { header, isCollapsed }
+ *  - isCollapsed bezieht sich auf den Stand VOR diesem Aufruf. */
+function collapsibleHeader(collapseKey, titleHtml, onChange) {
+  const isCollapsed = collapsed.has(collapseKey);
+  const header = document.createElement("button");
+  header.type = "button";
+  header.className = "collapsible-header";
+  header.innerHTML = `<span>${titleHtml}</span><i class="ti ti-chevron-${isCollapsed ? "right" : "down"}"></i>`;
+  header.onclick = () => {
+    if (isCollapsed) collapsed.delete(collapseKey);
+    else collapsed.add(collapseKey);
+    onChange();
+  };
+  return { header, isCollapsed };
 }
 
 /** "Nach oben"-Button: erscheint sobald die Seite gescrollt ist (funktioniert
@@ -425,69 +449,92 @@ function formatTermin(t) {
 
 function renderFerienTab(el, trip) {
   const data = getData();
+  el.innerHTML = "";
+  const onChange = () => renderFerienTab(el, trip);
 
-  el.innerHTML = `
-    <section class="panel">
-      <h2>Meine Ferien</h2>
-      <ul class="trip-list" id="trip-list"></ul>
-      <button id="new-trip-button" class="secondary"><i class="ti ti-plus"></i> Neue Ferien</button>
-    </section>
+  // ---------------------------------------------------------
+  // Sektion 1: "Meine Ferien" - Übersicht/Umschalten/Neu anlegen.
+  // Ist eine Ferien bereits ausgewählt, ist diese Liste standardmässig
+  // eingeklappt (siehe main()), damit sie nicht mit den Details der
+  // aktuellen Ferien direkt darunter verwechselt wird.
+  // ---------------------------------------------------------
+  const overviewKey = "ferien:liste";
+  const overviewSection = document.createElement("section");
+  overviewSection.className = "panel";
+  const { header: overviewHeader, isCollapsed: overviewCollapsed } = collapsibleHeader(
+    overviewKey,
+    trip ? `Meine Ferien <span class="hint-small" style="margin:0">(aktuell: ${escapeHtml(trip.titel)})</span>` : "Meine Ferien",
+    onChange
+  );
+  overviewSection.appendChild(overviewHeader);
+  if (!overviewCollapsed) {
+    const list = document.createElement("ul");
+    list.className = "trip-list";
+    const sortedFerien = [...data.ferien].sort((a, b) => {
+      if (!a.von && !b.von) return 0;
+      if (!a.von) return 1;
+      if (!b.von) return -1;
+      return a.von.localeCompare(b.von);
+    });
+    sortedFerien.forEach((f) => {
+      const li = document.createElement("li");
+      li.className = "trip-list-item" + (f.id === currentTripId ? " active" : "");
+      li.innerHTML = `<span>${escapeHtml(f.titel)}</span>${f.id === currentTripId ? '<i class="ti ti-check"></i>' : ""}`;
+      li.onclick = () => {
+        currentTripId = f.id;
+        collapsed.add(overviewKey);
+        render();
+      };
+      list.appendChild(li);
+    });
+    overviewSection.appendChild(list);
+    const newTripBtn = document.createElement("button");
+    newTripBtn.className = "secondary";
+    newTripBtn.innerHTML = `<i class="ti ti-plus"></i> Neue Ferien`;
+    newTripBtn.onclick = createNewTrip;
+    overviewSection.appendChild(newTripBtn);
+  }
+  el.appendChild(overviewSection);
 
-    ${trip ? `
-    <section class="panel">
-      <div class="panel-header-row">
-        <h2>${escapeHtml(trip.titel)}</h2>
-        <button id="edit-trip-button" class="link-button"><i class="ti ti-pencil"></i> Bearbeiten</button>
-      </div>
-      <p class="hint-small">${trip.von || trip.bis ? `${trip.von ? formatDate(trip.von) : "?"} – ${trip.bis ? formatDate(trip.bis) : "?"}` : "Noch kein Zeitraum hinterlegt"}</p>
-      <div id="trip-edit-form-container"></div>
-    </section>
+  if (!trip) return;
 
-    <section class="panel">
-      <h2>Merkmale</h2>
-      <p class="hint-small">Bestimmen, welche Artikel/To-Dos automatisch angezeigt werden.</p>
-      <div id="merkmale-gruppen"></div>
-    </section>
-
-    <section class="panel">
-      <h2>Unterkünfte</h2>
-      <p class="hint-small">Eine Reise kann mehrere Unterkünfte haben (z. B. bei mehreren Stopps).</p>
-      <div class="card-grid" id="unterkunft-cards"></div>
-      <div id="unterkunft-form-container"></div>
-    </section>` : ""}
+  // ---------------------------------------------------------
+  // Sektion 2: aktuelle Ferien (Titel/Zeitraum) - immer sichtbar, das ist
+  // der eigentliche Fokus dieses Tabs.
+  // ---------------------------------------------------------
+  const tripSection = document.createElement("section");
+  tripSection.className = "panel";
+  tripSection.innerHTML = `
+    <div class="panel-header-row">
+      <h2>${escapeHtml(trip.titel)}</h2>
+      <button id="edit-trip-button" class="link-button"><i class="ti ti-pencil"></i> Bearbeiten</button>
+    </div>
+    <p class="hint-small">${trip.von || trip.bis ? `${trip.von ? formatDate(trip.von) : "?"} – ${trip.bis ? formatDate(trip.bis) : "?"}` : "Noch kein Zeitraum hinterlegt"}</p>
+    <div id="trip-edit-form-container"></div>
   `;
+  el.appendChild(tripSection);
+  tripSection.querySelector("#edit-trip-button").onclick = () => {
+    editingTrip = !editingTrip;
+    onChange();
+  };
+  if (editingTrip) {
+    tripSection.querySelector("#trip-edit-form-container").appendChild(renderTripEditForm(trip, onChange));
+  }
 
-  const list = document.getElementById("trip-list");
-  const sortedFerien = [...data.ferien].sort((a, b) => {
-    if (!a.von && !b.von) return 0;
-    if (!a.von) return 1;
-    if (!b.von) return -1;
-    return a.von.localeCompare(b.von);
-  });
-  sortedFerien.forEach((f) => {
-    const li = document.createElement("li");
-    li.className = "trip-list-item" + (f.id === currentTripId ? " active" : "");
-    li.innerHTML = `<span>${escapeHtml(f.titel)}</span>${f.id === currentTripId ? '<i class="ti ti-check"></i>' : ""}`;
-    li.onclick = () => {
-      currentTripId = f.id;
-      render();
-    };
-    list.appendChild(li);
-  });
-
-  document.getElementById("new-trip-button").onclick = createNewTrip;
-
-  if (trip) {
-    document.getElementById("edit-trip-button").onclick = () => {
-      editingTrip = !editingTrip;
-      renderFerienTab(el, trip);
-    };
-    const formContainer = document.getElementById("trip-edit-form-container");
-    if (editingTrip) {
-      formContainer.appendChild(renderTripEditForm(trip, () => renderFerienTab(el, trip)));
-    }
-
-    const gruppenContainer = document.getElementById("merkmale-gruppen");
+  // ---------------------------------------------------------
+  // Sektion 3: Merkmale - einklappbar.
+  // ---------------------------------------------------------
+  const merkmaleKey = "ferien:merkmale";
+  const merkmaleSection = document.createElement("section");
+  merkmaleSection.className = "panel";
+  const { header: merkmaleHeader, isCollapsed: merkmaleCollapsed } = collapsibleHeader(merkmaleKey, "Merkmale", onChange);
+  merkmaleSection.appendChild(merkmaleHeader);
+  if (!merkmaleCollapsed) {
+    const hint = document.createElement("p");
+    hint.className = "hint-small";
+    hint.textContent = "Bestimmen, welche Artikel/To-Dos automatisch angezeigt werden.";
+    merkmaleSection.appendChild(hint);
+    const gruppenContainer = document.createElement("div");
     groupMerkmale(getMerkmaleDefs()).forEach((g) => {
       const wrap = document.createElement("div");
       wrap.className = "merkmale-gruppe";
@@ -504,17 +551,44 @@ function renderFerienTab(el, trip) {
           trip.merkmale = trip.merkmale || {};
           trip.merkmale[m.key] = !trip.merkmale[m.key];
           saveChange();
-          renderFerienTab(el, trip);
+          onChange();
         };
         chipRow.appendChild(chip);
       });
       wrap.appendChild(chipRow);
       gruppenContainer.appendChild(wrap);
     });
+    merkmaleSection.appendChild(gruppenContainer);
+  }
+  el.appendChild(merkmaleSection);
 
+  // ---------------------------------------------------------
+  // Sektion 4: Unterkünfte - einklappbar.
+  // ---------------------------------------------------------
+  const unterkunftKey = "ferien:unterkuenfte";
+  const unterkunftSection = document.createElement("section");
+  unterkunftSection.className = "panel";
+  const { header: unterkunftHeader, isCollapsed: unterkunftCollapsed } = collapsibleHeader(unterkunftKey, "Unterkünfte", onChange);
+  unterkunftSection.appendChild(unterkunftHeader);
+  if (!unterkunftCollapsed) {
+    const hint = document.createElement("p");
+    hint.className = "hint-small";
+    hint.textContent = "Eine Reise kann mehrere Unterkünfte haben (z. B. bei mehreren Stopps).";
+    unterkunftSection.appendChild(hint);
+    const cardGrid = document.createElement("div");
+    cardGrid.className = "card-grid";
+    cardGrid.id = "unterkunft-cards";
+    unterkunftSection.appendChild(cardGrid);
+    const formContainer = document.createElement("div");
+    formContainer.id = "unterkunft-form-container";
+    unterkunftSection.appendChild(formContainer);
+  }
+  el.appendChild(unterkunftSection);
+  if (!unterkunftCollapsed) {
     renderUnterkuenfte(el, trip);
   }
 }
+
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -985,7 +1059,7 @@ function reassignSort(list) {
 
 function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, onChange) {
   const row = document.createElement("div");
-  row.className = "item-row" + (item.erledigt ? " done" : "") + (item.nichtRelevant ? " not-relevant" : "");
+  row.className = "item-row" + (item.erledigt ? " done" : "") + (item.nichtRelevant ? " not-relevant" : "") + (item.prioritaet ? " priority" : "");
 
   if (manualSort) {
     const handle = document.createElement("i");
@@ -1074,6 +1148,18 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     onChange();
   };
   row.appendChild(bell);
+
+  const prioBtn = document.createElement("button");
+  prioBtn.type = "button";
+  prioBtn.className = "icon-btn priority-btn" + (item.prioritaet ? " active" : "");
+  prioBtn.innerHTML = `<i class="ti ${item.prioritaet ? "ti-flag-filled" : "ti-flag"}"></i>`;
+  prioBtn.title = item.prioritaet ? "Priorität entfernen" : "Als Priorität markieren";
+  prioBtn.onclick = () => {
+    item.prioritaet = !item.prioritaet;
+    saveChange();
+    onChange();
+  };
+  row.appendChild(prioBtn);
 
   const nrBtn = document.createElement("button");
   nrBtn.type = "button";
