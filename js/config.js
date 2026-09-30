@@ -16,7 +16,7 @@ const APP_CONFIG = {
   // Datendatei ablegt - bewusst der Ordner, den du selbst im
   // OneDrive-Explorer siehst und findest, kein verstecktes App-Verzeichnis.
   oneDriveFolderPath:
-    "10  Privat/Ferien + Ausflüge/Ferien - Lager - Weekends/0 Allgemeine Unterlagen/Ferien-App",
+    "Dokumente/10  Privat/Ferien + Ausflüge/Ferien - Lager - Weekends/0 Allgemeine Unterlagen/Ferien-App",
 
   // Berechtigungen (Scopes), die die App beim Login anfragt
   scopes: ["User.Read", "Files.ReadWrite"],
@@ -25,7 +25,7 @@ const APP_CONFIG = {
 // ===========================================================
 // VERSION (wird im Tab "Mehr" angezeigt)
 // ===========================================================
-const APP_VERSION = "0.6.0";
+const APP_VERSION = "0.6.1";
 const APP_BUILD_DATE = "2026-09-30";
 
 // ===========================================================
