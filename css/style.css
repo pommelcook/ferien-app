@@ -94,7 +94,7 @@ header {
 }
 .header-text p { margin: 0; font-size: 10px; color: var(--grey); }
 .header-text h1 { margin: 0; font-size: 15px; font-weight: 500; }
-#sync-status { margin-left: auto; font-size: 10px; color: var(--grey); }
+#sync-status { margin-left: 8px; font-size: 10px; color: var(--grey); }
 
 main#tab-content {
   flex: 1;
@@ -237,7 +237,7 @@ main#tab-content {
   border-color: var(--green);
 }
 
-.list-toolbar { display: flex; justify-content: flex-end; gap: 4px; margin-bottom: 4px; flex-wrap: wrap; }
+.list-toolbar { display: flex; justify-content: flex-end; margin-bottom: 4px; }
 
 .category { margin-bottom: 2px; }
 .category-header {
@@ -303,6 +303,8 @@ main#tab-content {
   main#tab-content { padding: 20px 24px 90px; }
 }
 
+/* Ab PC-Breite: linke "Verwalten"-Seitenleiste statt unterer Tab-Leiste,
+   damit man am PC den vollen Überblick behält (Punkt "Administrator-Sicht"). */
 @media (min-width: 900px) {
   .tab-bar { display: none; }
   .sidebar {
@@ -443,3 +445,37 @@ main#tab-content {
   flex-wrap: wrap;
 }
 .reminder-form input { padding: 5px 6px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; }
+
+/* ===========================================================
+   FERIEN-UMSCHALTER (Header) + BEARBEITEN/LOESCHEN
+   =========================================================== */
+.trip-switcher {
+  margin-left: auto;
+  max-width: 140px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  background: white;
+  color: #222;
+}
+
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.panel-header-row h2 { margin: 0; }
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--grey);
+  padding: 0 2px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.icon-btn.danger { color: #c0392b; }
+
+[data-theme="dark"] .trip-switcher { background: #23262b; color: #eee; border-color: #2a2d33; }
