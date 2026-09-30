@@ -395,10 +395,14 @@ main#tab-content {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 4px 6px;
+  padding: 4px 6px 4px 8px;
   border-bottom: 1px solid #f0f0f0;
+  /* Rahmen immer reservieren (transparent), damit die Zeile beim Ein-/Ausschalten
+     der Priorität nicht seitlich springt - nur die Farbe wechselt. */
+  border-left: 3px solid transparent;
 }
 .item-row:last-child { border-bottom: none; }
+.item-row > span.item-row-label { cursor: pointer; }
 .item-row-actions {
   display: flex;
   align-items: center;
@@ -415,13 +419,26 @@ main#tab-content {
 .item-row.done span { color: var(--grey); text-decoration: line-through; font-size: 11px; }
 .item-row.not-relevant span { color: var(--grey); font-style: italic; }
 .item-row.not-relevant { opacity: 0.65; }
-.item-row.priority { background: var(--amber-light); border-left: 3px solid var(--amber-dark); padding-left: 5px; }
+.item-row.priority { background: var(--amber-light); border-left-color: var(--amber-dark); }
 [data-theme="dark"] .item-row.priority { background: #3a2e12; }
 .priority-btn { font-size: 15px; }
 .priority-btn.active { color: var(--amber-dark); }
+/* Reisetag-Ansicht rendert die Flagge nicht als Button, sondern statisch -
+   trotzdem denselben Platz reservieren, damit auch dort nichts springt. */
+.reisetag-priority-flag { width: 15px; display: inline-flex; justify-content: center; font-size: 13px; color: transparent; cursor: pointer; }
+.reisetag-priority-flag.active { color: var(--amber-dark); }
 .reisetag-jump-icon { font-size: 14px; margin-right: 4px; cursor: pointer; color: var(--grey); }
 .reisetag-jump-icon:hover { color: var(--green); }
-.reisetag-kategorie-badge { color: var(--grey); font-style: italic; }
+.reisetag-kategorie-badge {
+  background: #eee;
+  color: var(--grey);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+[data-theme="dark"] .reisetag-kategorie-badge { background: #2a2d33; }
 .manual-entry-badge {
   display: inline-flex;
   align-items: center;
@@ -719,6 +736,29 @@ main#tab-content {
 [data-theme="dark"] .modal-card { background: #1f2227; color: #eee; }
 [data-theme="dark"] .modal-close-btn { background: #2a2d33; color: #eee; }
 
+/* Auswahl-Popup (z. B. "wo bearbeiten?") - zwei gleichwertige Optionen zum
+   Anklicken statt OK/Abbrechen, damit es nicht wie eine Fehlermeldung wirkt. */
+.choice-modal h3 { margin: 0 0 4px; }
+.choice-modal p.hint-small { margin: 0 0 14px; }
+.choice-modal-options { display: flex; flex-direction: column; gap: 10px; }
+.choice-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: var(--green-light);
+  color: var(--green);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.choice-option i { font-size: 18px; margin-top: 1px; flex-shrink: 0; }
+.choice-option strong { display: block; font-size: 13px; }
+.choice-option span.choice-desc { display: block; font-size: 11px; color: var(--grey); font-weight: 400; margin-top: 2px; }
+.choice-option.choice-option-secondary { background: #f4f4f4; color: #222; }
+[data-theme="dark"] .choice-option.choice-option-secondary { background: #23262b; color: #eee; }
+
 @media (min-width: 700px) {
   .modal-overlay { align-items: center; padding: 20px; }
   .modal-card { border-radius: 16px; padding: 20px 20px 22px; }
@@ -752,7 +792,9 @@ main#tab-content {
 .scroll-top-btn.visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
 
 @media (min-width: 900px) {
-  .scroll-top-btn { bottom: 24px; }
+  /* Ab PC-Breite: links zwischen Sidebar (180px + Rahmen) und Inhalt, da die
+     Maus dort beim Lesen/Scrollen ohnehin meist in der Nähe ist. */
+  .scroll-top-btn { right: auto; left: 192px; bottom: 24px; }
 }
 
 /* ARTIKEL-MATRIX (Artikel x Merkmale, Ansicht "Matrix" in der Artikel-Datenbank) */
@@ -813,3 +855,19 @@ main#tab-content {
 [data-theme="dark"] .artikel-matrix .matrix-artikel-col { background: #1a1d21; }
 [data-theme="dark"] .artikel-matrix .matrix-kategorie-row td { background: #23262b; }
 [data-theme="dark"] .artikel-matrix th, [data-theme="dark"] .artikel-matrix td { border-color: #33373d; }
+
+/* Gruppen-Kopfzeile (Merkmal-Überbegriffe wie "Transport") - Textfarbe dunkel
+   genug für die hellen Akzentfarben, auch im Dunkelmodus lesbar. */
+.artikel-matrix .matrix-gruppen-row th { font-size: 10px; font-weight: 600; color: #333; white-space: normal; }
+.artikel-matrix .matrix-gruppen-row .matrix-artikel-col,
+.artikel-matrix .matrix-gruppen-row .matrix-bemerkung-col { background: transparent !important; }
+[data-theme="dark"] .artikel-matrix .matrix-gruppen-row th { color: #222; }
+
+/* Liste-Ansicht: analog zur Matrix grau hinterlegen, wenn bereits auf der
+   Packliste - macht in beiden Ansichten denselben Zustand sichtbar. */
+.item-row.item-row-on-packliste { opacity: 0.65; }
+.item-row.item-row-on-packliste > span { color: var(--grey); }
+
+/* "Auf Packliste"-Icon immer deutlich grün, auch wenn die Zeile drumherum
+   ausgegraut ist. */
+.on-packliste-badge, .on-packliste-badge i { color: var(--green) !important; }
