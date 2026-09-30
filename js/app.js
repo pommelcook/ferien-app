@@ -110,6 +110,8 @@ async function main() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("app-screen").classList.remove("hidden");
 
+  ensureMerkmaleDefs();
+
   const data = getData();
   if (!currentTripId && data.ferien.length > 0) {
     currentTripId = data.ferien[0].id;
@@ -389,7 +391,7 @@ function renderFerienTab(el, trip) {
     <section class="panel">
       <h2>Merkmale</h2>
       <p class="hint-small">Bestimmen, welche Artikel/To-Dos automatisch angezeigt werden.</p>
-      <div class="chip-row" id="merkmale-chips"></div>
+      <div id="merkmale-gruppen"></div>
     </section>
 
     <section class="panel">
@@ -430,19 +432,29 @@ function renderFerienTab(el, trip) {
       formContainer.appendChild(renderTripEditForm(trip, () => renderFerienTab(el, trip)));
     }
 
-    const chipRow = document.getElementById("merkmale-chips");
-    getMerkmaleDefs().forEach((m) => {
-      const active = !!(trip.merkmale && trip.merkmale[m.key]);
-      const chip = document.createElement("button");
-      chip.className = "chip" + (active ? " active" : "");
-      chip.innerHTML = `<i class="ti ${m.icon}"></i>${m.label}`;
-      chip.onclick = () => {
-        trip.merkmale = trip.merkmale || {};
-        trip.merkmale[m.key] = !trip.merkmale[m.key];
-        saveChange();
-        renderFerienTab(el, trip);
-      };
-      chipRow.appendChild(chip);
+    const gruppenContainer = document.getElementById("merkmale-gruppen");
+    groupMerkmale(getMerkmaleDefs()).forEach((g) => {
+      const wrap = document.createElement("div");
+      wrap.className = "merkmale-gruppe";
+      wrap.innerHTML = `<p class="hint-small merkmale-gruppe-titel">${escapeHtml(g.gruppe)}</p>`;
+      const chipRow = document.createElement("div");
+      chipRow.className = "chip-row";
+      g.items.forEach((m) => {
+        const active = !!(trip.merkmale && trip.merkmale[m.key]);
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip" + (active ? " active" : "");
+        chip.innerHTML = `<i class="ti ${m.icon}"></i>${m.label}`;
+        chip.onclick = () => {
+          trip.merkmale = trip.merkmale || {};
+          trip.merkmale[m.key] = !trip.merkmale[m.key];
+          saveChange();
+          renderFerienTab(el, trip);
+        };
+        chipRow.appendChild(chip);
+      });
+      wrap.appendChild(chipRow);
+      gruppenContainer.appendChild(wrap);
     });
 
     renderUnterkuenfte(el, trip);
@@ -667,13 +679,49 @@ function getMerkmaleDefs() {
 }
 
 /** Stellt sicher, dass die Merkmal-Liste in den Daten existiert (einmalig
- *  aus den Standardwerten kopiert), damit sie bearbeitbar wird. */
+ *  aus den Standardwerten kopiert), damit sie bearbeitbar wird. Führt
+ *  ausserdem einmalig die Migration auf die neue, nach Überbegriffen
+ *  gruppierte Merkmale-Liste durch (1:1 nach Excel-Master). Alte,
+ *  inzwischen nicht mehr existierende Schlüssel an bestehenden Ferien
+ *  bleiben als ungenutzte Daten liegen, werden aber nirgends mehr
+ *  angezeigt (Fokus liegt auf zukünftigen Ferien, nicht auf der
+ *  Bereinigung alter Daten). */
 function ensureMerkmaleDefs() {
   const data = getData();
-  if (!data.merkmaleDefs || !data.merkmaleDefs.length) {
+  if (!data.merkmaleDefsV2) {
+    data.merkmaleDefs = MERKMALE_DEFS.map((m) => ({ ...m }));
+    data.merkmaleDefsV2 = true;
+    saveChange();
+  } else if (!data.merkmaleDefs || !data.merkmaleDefs.length) {
     data.merkmaleDefs = MERKMALE_DEFS.map((m) => ({ ...m }));
   }
   return data.merkmaleDefs;
+}
+
+/** Bekannte Gruppen-Überbegriffe in der Reihenfolge des Excel-Masters
+ *  (für die Gruppen-Auswahl im "Neues Merkmal"-Formular). */
+function bekannteMerkmalGruppen() {
+  const seen = [];
+  MERKMALE_DEFS.forEach((m) => { if (!seen.includes(m.gruppe)) seen.push(m.gruppe); });
+  return seen;
+}
+
+/** Bündelt eine flache Merkmal-Liste (ggf. nutzerangepasst) nach ihrem
+ *  "gruppe"-Feld, damit sie wie im Excel-Master mit Überbegriffen
+ *  angezeigt werden kann. Merkmale ohne bekannte Gruppe (z. B. selbst
+ *  angelegte) landen gesammelt in "✨ Weitere". */
+function groupMerkmale(defs) {
+  const groups = [];
+  const byName = {};
+  defs.forEach((m) => {
+    const gruppe = m.gruppe || "✨ Weitere";
+    if (!byName[gruppe]) {
+      byName[gruppe] = { gruppe, items: [] };
+      groups.push(byName[gruppe]);
+    }
+    byName[gruppe].items.push(m);
+  });
+  return groups;
 }
 
 /** Stellt sicher, dass der zentrale Artikel-Katalog existiert - beim allerersten
@@ -686,6 +734,7 @@ function ensureArtikelDatenbank() {
       id: "art-default-" + i,
       kategorie: a.kategorie,
       text: a.text,
+      bemerkung: a.bemerkung || "",
       merkmale: [...(a.merkmale || [])],
     }));
   }
@@ -1184,7 +1233,7 @@ function renderArtikelTab(el) {
       row.className = "item-row";
       row.innerHTML = `
         <i class="ti ${categoryIcon(a.kategorie)} category-icon"></i>
-        <span style="flex:1">${escapeHtml(a.text)}<br /><span class="hint-small" style="margin:0">${escapeHtml(a.kategorie || "Allgemein")}${merkmaleLabels.length ? " · " + merkmaleLabels.map(escapeHtml).join(", ") : ""}</span></span>
+        <span style="flex:1">${escapeHtml(a.text)}<br /><span class="hint-small" style="margin:0">${escapeHtml(a.kategorie || "Allgemein")}${merkmaleLabels.length ? " · " + merkmaleLabels.map(escapeHtml).join(", ") : ""}</span>${a.bemerkung ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-message-2"></i> ${escapeHtml(a.bemerkung)}</span>` : ""}</span>
       `;
       if (trip) {
         const addBtn = document.createElement("button");
@@ -1233,21 +1282,26 @@ function renderArtikelTab(el) {
   const formContainer = document.getElementById("artikel-form-container");
   if (editingArtikelId) {
     formContainer.appendChild(renderArtikelForm(katalog, () => renderArtikelTab(el)));
+    // Formular kann bei ~200 Katalog-Artikeln weit unterhalb der Liste
+    // liegen - ohne dieses Scrollen wirkt ein Klick auf "Bearbeiten"
+    // wie "nichts passiert".
+    formContainer.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
 function renderArtikelForm(katalog, onChange) {
   const isNew = editingArtikelId === "__neu__";
   const existing = isNew ? null : katalog.find((a) => a.id === editingArtikelId);
-  const a = existing || { text: "", kategorie: "", merkmale: [] };
+  const a = existing || { text: "", kategorie: "", merkmale: [], bemerkung: "" };
 
   const form = document.createElement("form");
   form.className = "field-form panel";
   form.innerHTML = `
     <label>Artikel<input type="text" name="text" value="${escapeHtml(a.text)}" required /></label>
     <label>Kategorie<input type="text" name="kategorie" value="${escapeHtml(a.kategorie)}" placeholder="z. B. Kleider" /></label>
+    <label>Bemerkung (allgemein)<textarea name="bemerkung" rows="2" placeholder="z. B. Ersatzlinsen, Linsenmittel, Linsenbehälter">${escapeHtml(a.bemerkung || "")}</textarea></label>
     <label>Nur bei Merkmalen (optional)</label>
-    <div class="chip-row" id="artikel-merkmale-chips"></div>
+    <div id="artikel-merkmale-gruppen"></div>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="cancel-artikel" class="secondary">Abbrechen</button>
@@ -1256,18 +1310,27 @@ function renderArtikelForm(katalog, onChange) {
   `;
 
   const selectedMerkmale = new Set(a.merkmale || []);
-  const chipRow = form.querySelector("#artikel-merkmale-chips");
-  getMerkmaleDefs().forEach((m) => {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "chip" + (selectedMerkmale.has(m.key) ? " active" : "");
-    chip.innerHTML = `<i class="ti ${m.icon}"></i>${m.label}`;
-    chip.onclick = () => {
-      if (selectedMerkmale.has(m.key)) selectedMerkmale.delete(m.key);
-      else selectedMerkmale.add(m.key);
-      chip.classList.toggle("active");
-    };
-    chipRow.appendChild(chip);
+  const gruppenContainer = form.querySelector("#artikel-merkmale-gruppen");
+  groupMerkmale(getMerkmaleDefs()).forEach((g) => {
+    const wrap = document.createElement("div");
+    wrap.className = "merkmale-gruppe";
+    wrap.innerHTML = `<p class="hint-small merkmale-gruppe-titel">${escapeHtml(g.gruppe)}</p>`;
+    const chipRow = document.createElement("div");
+    chipRow.className = "chip-row";
+    g.items.forEach((m) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip" + (selectedMerkmale.has(m.key) ? " active" : "");
+      chip.innerHTML = `<i class="ti ${m.icon}"></i>${m.label}`;
+      chip.onclick = () => {
+        if (selectedMerkmale.has(m.key)) selectedMerkmale.delete(m.key);
+        else selectedMerkmale.add(m.key);
+        chip.classList.toggle("active");
+      };
+      chipRow.appendChild(chip);
+    });
+    wrap.appendChild(chipRow);
+    gruppenContainer.appendChild(wrap);
   });
 
   form.addEventListener("submit", (e) => {
@@ -1276,6 +1339,7 @@ function renderArtikelForm(katalog, onChange) {
     const values = {
       text: fd.get("text").trim(),
       kategorie: fd.get("kategorie").trim() || "Allgemein",
+      bemerkung: fd.get("bemerkung").trim(),
       merkmale: [...selectedMerkmale],
     };
     if (!values.text) return;
@@ -1323,29 +1387,35 @@ function renderMerkmaleTab(el) {
   `;
 
   const list = document.getElementById("merkmal-list");
-  defs.forEach((m) => {
-    const row = document.createElement("div");
-    row.className = "item-row";
-    row.innerHTML = `<i class="ti ${m.icon} category-icon"></i><span style="flex:1">${escapeHtml(m.label)}</span>`;
-    const editBtn = document.createElement("button");
-    editBtn.type = "button";
-    editBtn.className = "icon-btn";
-    editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
-    editBtn.onclick = () => { editingMerkmalKey = m.key; renderMerkmaleTab(el); };
-    row.appendChild(editBtn);
-    const delBtn = document.createElement("button");
-    delBtn.type = "button";
-    delBtn.className = "icon-btn danger";
-    delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
-    delBtn.onclick = () => {
-      if (!confirm(`Merkmal "${m.label}" wirklich löschen? Bestehende Zuordnungen bei Artikeln/Ferien bleiben als ungenutzter Schlüssel erhalten.`)) return;
-      const data = getData();
-      data.merkmaleDefs = data.merkmaleDefs.filter((x) => x.key !== m.key);
-      saveChange();
-      renderMerkmaleTab(el);
-    };
-    row.appendChild(delBtn);
-    list.appendChild(row);
+  groupMerkmale(defs).forEach((g) => {
+    const groupWrap = document.createElement("div");
+    groupWrap.className = "merkmale-gruppe";
+    groupWrap.innerHTML = `<p class="hint-small merkmale-gruppe-titel">${escapeHtml(g.gruppe)}</p>`;
+    g.items.forEach((m) => {
+      const row = document.createElement("div");
+      row.className = "item-row";
+      row.innerHTML = `<i class="ti ${m.icon} category-icon"></i><span style="flex:1">${escapeHtml(m.label)}</span>`;
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "icon-btn";
+      editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
+      editBtn.onclick = () => { editingMerkmalKey = m.key; renderMerkmaleTab(el); };
+      row.appendChild(editBtn);
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "icon-btn danger";
+      delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+      delBtn.onclick = () => {
+        if (!confirm(`Merkmal "${m.label}" wirklich löschen? Bestehende Zuordnungen bei Artikeln/Ferien bleiben als ungenutzter Schlüssel erhalten.`)) return;
+        const data = getData();
+        data.merkmaleDefs = data.merkmaleDefs.filter((x) => x.key !== m.key);
+        saveChange();
+        renderMerkmaleTab(el);
+      };
+      row.appendChild(delBtn);
+      groupWrap.appendChild(row);
+    });
+    list.appendChild(groupWrap);
   });
 
   document.getElementById("new-merkmal-button").onclick = () => { editingMerkmalKey = "__neu__"; renderMerkmaleTab(el); };
@@ -1353,19 +1423,28 @@ function renderMerkmaleTab(el) {
   const formContainer = document.getElementById("merkmal-form-container");
   if (editingMerkmalKey) {
     formContainer.appendChild(renderMerkmalForm(defs, () => renderMerkmaleTab(el)));
+    formContainer.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
 function renderMerkmalForm(defs, onChange) {
   const isNew = editingMerkmalKey === "__neu__";
   const existing = isNew ? null : defs.find((m) => m.key === editingMerkmalKey);
-  const m = existing || { label: "", icon: "ti-tag" };
+  const m = existing || { label: "", icon: "ti-tag", gruppe: "" };
+  const gruppen = bekannteMerkmalGruppen();
+  const weitereLabel = "✨ Weitere";
 
   const form = document.createElement("form");
   form.className = "field-form panel";
   form.innerHTML = `
     <label>Bezeichnung<input type="text" name="label" value="${escapeHtml(m.label)}" required /></label>
     <label>Icon (Tabler-Icon-Name, z. B. "ti-sun")<input type="text" name="icon" value="${escapeHtml(m.icon)}" /></label>
+    <label>Gruppe (Überbegriff)
+      <select name="gruppe">
+        ${gruppen.map((g) => `<option value="${escapeHtml(g)}"${m.gruppe === g ? " selected" : ""}>${escapeHtml(g)}</option>`).join("")}
+        <option value="${escapeHtml(weitereLabel)}"${!m.gruppe || !gruppen.includes(m.gruppe) ? " selected" : ""}>${escapeHtml(weitereLabel)}</option>
+      </select>
+    </label>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="cancel-merkmal" class="secondary">Abbrechen</button>
@@ -1377,13 +1456,15 @@ function renderMerkmalForm(defs, onChange) {
     const fd = new FormData(form);
     const label = fd.get("label").trim();
     const icon = fd.get("icon").trim() || "ti-tag";
+    const gruppe = fd.get("gruppe");
     if (!label) return;
     if (isNew) {
       const key = label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      defs.push({ key, label, icon });
+      defs.push({ key, label, icon, gruppe });
     } else {
       existing.label = label;
       existing.icon = icon;
+      existing.gruppe = gruppe;
     }
     saveChange();
     editingMerkmalKey = null;
