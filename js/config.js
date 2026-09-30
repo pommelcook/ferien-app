@@ -25,8 +25,8 @@ const APP_CONFIG = {
 // ===========================================================
 // VERSION (wird im Tab "Mehr" angezeigt)
 // ===========================================================
-const APP_VERSION = "0.2.0";
-const APP_BUILD_DATE = "2026-09-29";
+const APP_VERSION = "0.3.0";
+const APP_BUILD_DATE = "2026-09-30";
 
 // ===========================================================
 // MERKMALE (wie im Excel-Master, hier als überschaubare Auswahl)
