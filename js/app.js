@@ -487,7 +487,6 @@ function createNewTrip() {
   currentTripId = id;
   render();
 }
-
 // ===========================================================
 // TAB: PACKLISTE / TO-DO (kategorisierte Liste mit Filtern)
 // ===========================================================
@@ -737,7 +736,6 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
   row.appendChild(cb);
 
   if (showTermin && item.termin !== undefined && item.termin !== null && item.termin !== "") {
-    const badge = document.createElement("span");
     const badge = document.createElement("span");
     badge.className = "termin-badge";
     badge.textContent = formatTermin(item.termin);
