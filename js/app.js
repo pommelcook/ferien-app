@@ -693,7 +693,7 @@ function ensureArtikelDatenbank() {
 // TAB: PACKLISTE / TO-DO (kategorisierte Liste mit Filtern)
 // ===========================================================
 
-function renderListTab(el, trip, key, icon, placeholder) {
+function renderListTab(el, trip, key, icon, placeholder) { seedListFromKatalogIfEmpty(trip, key);
   const items = trip[key];
   const relevant = items.filter((i) => itemVisible(i, trip));
   const isTodo = key === "todo";
@@ -1652,3 +1652,35 @@ function registerServiceWorker() {
 }
 
 window.addEventListener("DOMContentLoaded", main);
+/** Füllt Packliste/To-Do einer Ferien aus dem zentralen Katalog bzw. der
+ *  Standard-Vorlage, falls die Liste noch ganz leer ist. Das greift nicht nur
+ *  bei ganz neuen Ferien (die werden schon in createNewTrip() befüllt),
+ *  sondern auch bei älteren, schon vorher angelegten Ferien, deren Packliste/
+ *  To-Do noch nie befüllt wurde - z. B. weil sie vor diesem Update entstanden
+ *  sind oder nie erfolgreich synchronisiert wurden. */
+function seedListFromKatalogIfEmpty(trip, key) {
+  if (trip[key] && trip[key].length) return;
+  if (key === "packliste") {
+    const katalog = ensureArtikelDatenbank();
+    if (!katalog.length) return;
+    trip.packliste = katalog.map((a, i) => ({
+      id: "i" + Date.now() + Math.random().toString(36).slice(2, 6) + i,
+      text: a.text,
+      erledigt: false,
+      kategorie: a.kategorie || "Allgemein",
+      sort: i,
+      ...(a.merkmale && a.merkmale.length ? { nurWenn: a.merkmale } : {}),
+    }));
+    saveChange();
+  } else if (key === "todo") {
+    trip.todo = DEFAULT_TODO_VORLAGE.map((t, i) => ({
+      id: "i" + Date.now() + Math.random().toString(36).slice(2, 6) + "t" + i,
+      text: t.text,
+      erledigt: false,
+      kategorie: t.kategorie || "Allgemein",
+      sort: i,
+      ...(t.merkmale && t.merkmale.length ? { nurWenn: t.merkmale } : {}),
+    }));
+    saveChange();
+  }
+}
