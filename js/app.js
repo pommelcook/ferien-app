@@ -647,9 +647,12 @@ function createNewTrip() {
     todo,
     unterkuenfte: [],
     programm: [],
+    tagesplan: [],
+    ideen: [],
+    programmMigriert: true,
     finanzen: [],
-  });
-  saveChange();
+  });  
+    saveChange();
   currentTripId = id;
   render();
 }
@@ -1392,9 +1395,43 @@ function renderMerkmalForm(defs, onChange) {
   return form;
 }
 // ===========================================================
-// TAB: PROGRAMM (Tagesprogramm/Ausflüge pro Ferien)
+// TAB: PROGRAMM (Tagesplan + Ideensammlung, wie im Excel-Master
+// "Programm & Aktivitäten": ein Bereich für die konkrete Tagesplanung
+// (mit Datum) und ein Bereich für noch nicht eingeplante Ideen.)
 // ===========================================================
-let editingProgrammId = null;
+let editingTagesplanId = null;
+let editingIdeeId = null;
+
+/** Migriert einmalig alte, flache trip.programm-Einträge (vor diesem
+ *  Update) in die neue Struktur (trip.tagesplan), damit keine
+ *  bestehenden Daten verloren gehen. */
+function ensureProgrammStruktur(trip) {
+  trip.tagesplan = trip.tagesplan || [];
+  trip.ideen = trip.ideen || [];
+  if (!trip.programmMigriert && Array.isArray(trip.programm) && trip.programm.length) {
+    trip.programm.forEach((p) => {
+      let slot = "vormittag";
+      if (p.zeit && p.zeit >= "18:00") slot = "abend";
+      else if (p.zeit && p.zeit >= "12:00") slot = "nachmittag";
+      const entry = {
+        id: "tp" + Date.now() + Math.random().toString(36).slice(2, 6),
+        datum: p.datum || "",
+        vormittag: "",
+        nachmittag: "",
+        abend: "",
+        ort: p.ort || "",
+        reservation: false,
+        kosten: "",
+        bemerkung: p.notizen || "",
+        link: "",
+      };
+      entry[slot] = p.titel + (p.zeit ? ` (${p.zeit})` : "");
+      trip.tagesplan.push(entry);
+    });
+    trip.programmMigriert = true;
+    saveChange();
+  }
+}
 
 function renderProgrammTab(el, trip) {
   if (!trip) {
@@ -1403,80 +1440,222 @@ function renderProgrammTab(el, trip) {
     `;
     return;
   }
-  trip.programm = trip.programm || [];
+  ensureProgrammStruktur(trip);
 
-  const sorted = [...trip.programm].sort((a, b) => (a.datum || "").localeCompare(b.datum || "") || (a.zeit || "").localeCompare(b.zeit || ""));
+  const tagesplanSorted = [...trip.tagesplan].sort((a, b) => (a.datum || "").localeCompare(b.datum || ""));
+  const ideenSorted = [...trip.ideen].sort((a, b) => (a.kategorie || "").localeCompare(b.kategorie || "") || (a.idee || "").localeCompare(b.idee || ""));
 
   el.innerHTML = `
     <section class="panel">
       <h2><i class="ti ti-calendar-event"></i> Programm - ${escapeHtml(trip.titel)}</h2>
-      <div id="programm-list"></div>
-      <button id="new-programm-button" class="secondary"><i class="ti ti-plus"></i> Neuer Programmpunkt</button>
+      <h3 style="margin-top:0">📅 Tagesplan</h3>
+      <p class="hint-small">Konkrete Planung mit Datum - was steht wann an?</p>
+      <div id="tagesplan-list"></div>
+      <button id="new-tagesplan-button" class="secondary"><i class="ti ti-plus"></i> Neuer Tagesplan-Eintrag</button>
     </section>
-    <div id="programm-form-container"></div>
+    <div id="tagesplan-form-container"></div>
+    <section class="panel">
+      <h3 style="margin-top:0">💡 Ideensammlung</h3>
+      <p class="hint-small">Noch nicht eingeplante Ideen - Ausflüge, Restaurants, Aktivitäten ...</p>
+      <div id="ideen-list"></div>
+      <button id="new-idee-button" class="secondary"><i class="ti ti-plus"></i> Neue Idee</button>
+    </section>
+    <div id="idee-form-container"></div>
   `;
 
-  const list = document.getElementById("programm-list");
-  if (!sorted.length) {
-    list.innerHTML = `<p class="hint-empty">Noch kein Programm erfasst.</p>`;
+  const tpList = document.getElementById("tagesplan-list");
+  if (!tagesplanSorted.length) {
+    tpList.innerHTML = `<p class="hint-empty">Noch kein Tagesplan erfasst.</p>`;
   }
-  sorted.forEach((p) => {
-    const when = [p.datum ? formatDate(p.datum) : "", p.zeit || ""].filter(Boolean).join(" ");
+  tagesplanSorted.forEach((p) => {
+    const teile = [
+      p.vormittag ? `<strong>Vormittag:</strong> ${escapeHtml(p.vormittag)}` : "",
+      p.nachmittag ? `<strong>Nachmittag:</strong> ${escapeHtml(p.nachmittag)}` : "",
+      p.abend ? `<strong>Abend:</strong> ${escapeHtml(p.abend)}` : "",
+    ].filter(Boolean).join("<br />");
     const row = document.createElement("div");
     row.className = "item-row";
     row.innerHTML = `
       <span style="flex:1">
-        ${when ? `<span class="termin-badge">${escapeHtml(when)}</span> ` : ""}<strong>${escapeHtml(p.titel)}</strong>
-        ${p.ort ? `<br /><span class="hint-small" style="margin:0">${escapeHtml(p.ort)}</span>` : ""}
+        <span class="termin-badge">${p.datum ? escapeHtml(formatDate(p.datum)) : "Datum offen"}</span>
+        ${p.reservation ? ` <i class="ti ti-alarm" title="Reservation nötig"></i>` : ""}
+        <br />${teile || `<span class="hint-small" style="margin:0">-</span>`}
+        ${p.ort ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-map-pin"></i> ${escapeHtml(p.ort)}</span>` : ""}
+        ${p.kosten ? `<br /><span class="hint-small" style="margin:0">Kosten ca. ${escapeHtml(p.kosten)}</span>` : ""}
+        ${p.link ? `<br /><a href="${escapeHtml(p.link)}" target="_blank" rel="noopener" class="hint-small">Link</a>` : ""}
+        ${p.bemerkung ? `<br /><span class="hint-small" style="margin:0">${escapeHtml(p.bemerkung)}</span>` : ""}
       </span>
     `;
     const editBtn = document.createElement("button");
     editBtn.type = "button";
     editBtn.className = "icon-btn";
     editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
-    editBtn.onclick = () => { editingProgrammId = p.id; renderProgrammTab(el, trip); };
+    editBtn.onclick = () => { editingTagesplanId = p.id; renderProgrammTab(el, trip); };
     row.appendChild(editBtn);
     const delBtn = document.createElement("button");
     delBtn.type = "button";
     delBtn.className = "icon-btn danger";
     delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
     delBtn.onclick = () => {
-      if (!confirm(`"${p.titel}" wirklich löschen?`)) return;
-      trip.programm = trip.programm.filter((x) => x.id !== p.id);
+      if (!confirm(`Diesen Tagesplan-Eintrag wirklich löschen?`)) return;
+      trip.tagesplan = trip.tagesplan.filter((x) => x.id !== p.id);
       saveChange();
       renderProgrammTab(el, trip);
     };
     row.appendChild(delBtn);
-    list.appendChild(row);
+    tpList.appendChild(row);
   });
 
-  document.getElementById("new-programm-button").onclick = () => { editingProgrammId = "__neu__"; renderProgrammTab(el, trip); };
+  document.getElementById("new-tagesplan-button").onclick = () => { editingTagesplanId = "__neu__"; renderProgrammTab(el, trip); };
+  const tpFormContainer = document.getElementById("tagesplan-form-container");
+  if (editingTagesplanId) {
+    tpFormContainer.appendChild(renderTagesplanForm(trip, () => renderProgrammTab(el, trip)));
+  }
 
-  const formContainer = document.getElementById("programm-form-container");
-  if (editingProgrammId) {
-    formContainer.appendChild(renderProgrammForm(trip, () => renderProgrammTab(el, trip)));
+  const ideenList = document.getElementById("ideen-list");
+  if (!ideenSorted.length) {
+    ideenList.innerHTML = `<p class="hint-empty">Noch keine Ideen erfasst.</p>`;
+  }
+  ideenSorted.forEach((idee) => {
+    const row = document.createElement("div");
+    row.className = "item-row";
+    row.innerHTML = `
+      <span style="flex:1">
+        <strong>${escapeHtml(idee.idee)}</strong>${idee.kategorie ? ` <span class="hint-small">(${escapeHtml(idee.kategorie)})</span>` : ""}
+        ${idee.ort ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-map-pin"></i> ${escapeHtml(idee.ort)}</span>` : ""}
+        ${idee.fahrzeit ? `<br /><span class="hint-small" style="margin:0">Fahrzeit: ${escapeHtml(idee.fahrzeit)}</span>` : ""}
+        ${idee.kosten ? `<br /><span class="hint-small" style="margin:0">Kosten ca. ${escapeHtml(idee.kosten)}</span>` : ""}
+        ${idee.googleMaps ? `<br /><a href="${escapeHtml(idee.googleMaps)}" target="_blank" rel="noopener" class="hint-small">Google Maps</a>` : ""}
+        ${idee.link ? `<br /><a href="${escapeHtml(idee.link)}" target="_blank" rel="noopener" class="hint-small">Link</a>` : ""}
+        ${idee.bemerkung ? `<br /><span class="hint-small" style="margin:0">${escapeHtml(idee.bemerkung)}</span>` : ""}
+      </span>
+    `;
+    const toPlanBtn = document.createElement("button");
+    toPlanBtn.type = "button";
+    toPlanBtn.className = "icon-btn";
+    toPlanBtn.title = "In Tagesplan übernehmen";
+    toPlanBtn.innerHTML = `<i class="ti ti-calendar-plus"></i>`;
+    toPlanBtn.onclick = () => {
+      trip.tagesplan.push({
+        id: "tp" + Date.now() + Math.random().toString(36).slice(2, 6),
+        datum: "",
+        vormittag: idee.idee,
+        nachmittag: "",
+        abend: "",
+        ort: idee.ort || "",
+        reservation: false,
+        kosten: idee.kosten || "",
+        bemerkung: idee.bemerkung || "",
+        link: idee.link || idee.googleMaps || "",
+      });
+      trip.ideen = trip.ideen.filter((x) => x.id !== idee.id);
+      saveChange();
+      renderProgrammTab(el, trip);
+    };
+    row.appendChild(toPlanBtn);
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "icon-btn";
+    editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
+    editBtn.onclick = () => { editingIdeeId = idee.id; renderProgrammTab(el, trip); };
+    row.appendChild(editBtn);
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "icon-btn danger";
+    delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+    delBtn.onclick = () => {
+      if (!confirm(`"${idee.idee}" wirklich löschen?`)) return;
+      trip.ideen = trip.ideen.filter((x) => x.id !== idee.id);
+      saveChange();
+      renderProgrammTab(el, trip);
+    };
+    row.appendChild(delBtn);
+    ideenList.appendChild(row);
+  });
+
+  document.getElementById("new-idee-button").onclick = () => { editingIdeeId = "__neu__"; renderProgrammTab(el, trip); };
+  const ideeFormContainer = document.getElementById("idee-form-container");
+  if (editingIdeeId) {
+    ideeFormContainer.appendChild(renderIdeeForm(trip, () => renderProgrammTab(el, trip)));
   }
 }
 
-function renderProgrammForm(trip, onChange) {
-  const isNew = editingProgrammId === "__neu__";
-  const existing = isNew ? null : trip.programm.find((p) => p.id === editingProgrammId);
-  const p = existing || { datum: "", zeit: "", titel: "", ort: "", notizen: "" };
+function renderTagesplanForm(trip, onChange) {
+  const isNew = editingTagesplanId === "__neu__";
+  const existing = isNew ? null : trip.tagesplan.find((p) => p.id === editingTagesplanId);
+  const p = existing || { datum: "", vormittag: "", nachmittag: "", abend: "", ort: "", reservation: false, kosten: "", bemerkung: "", link: "" };
 
   const form = document.createElement("form");
   form.className = "field-form panel";
   form.innerHTML = `
-    <label>Titel<input type="text" name="titel" value="${escapeHtml(p.titel)}" required /></label>
-    <div class="field-row">
-      <label>Datum<input type="date" name="datum" value="${escapeHtml(p.datum)}" /></label>
-      <label>Zeit<input type="time" name="zeit" value="${escapeHtml(p.zeit)}" /></label>
-    </div>
+    <label>Datum<input type="date" name="datum" value="${escapeHtml(p.datum)}" /></label>
+    <label>Vormittag<input type="text" name="vormittag" value="${escapeHtml(p.vormittag)}" /></label>
+    <label>Nachmittag<input type="text" name="nachmittag" value="${escapeHtml(p.nachmittag)}" /></label>
+    <label>Abend<input type="text" name="abend" value="${escapeHtml(p.abend)}" /></label>
     <label>Ort<input type="text" name="ort" value="${escapeHtml(p.ort)}" /></label>
-    <label>Notizen<textarea name="notizen" rows="2">${escapeHtml(p.notizen)}</textarea></label>
+    <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
+      <input type="checkbox" name="reservation" ${p.reservation ? "checked" : ""} /> Reservation nötig?
+    </label>
+    <label>Kosten<input type="text" name="kosten" value="${escapeHtml(p.kosten)}" placeholder="ca. CHF ..." /></label>
+    <label>Link<input type="url" name="link" value="${escapeHtml(p.link)}" placeholder="https://..." /></label>
+    <label>Bemerkung<textarea name="bemerkung" rows="2">${escapeHtml(p.bemerkung)}</textarea></label>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
-      <button type="button" id="cancel-programm" class="secondary">Abbrechen</button>
-      ${existing ? `<button type="button" id="delete-programm" class="danger"><i class="ti ti-trash"></i></button>` : ""}
+      <button type="button" id="cancel-tagesplan" class="secondary">Abbrechen</button>
+      ${existing ? `<button type="button" id="delete-tagesplan" class="danger"><i class="ti ti-trash"></i></button>` : ""}
+    </div>
+  `;
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const values = Object.fromEntries(fd.entries());
+    values.reservation = fd.get("reservation") === "on";
+    if (isNew) {
+      trip.tagesplan.push({ id: "tp" + Date.now() + Math.random().toString(36).slice(2, 6), ...values });
+    } else {
+      Object.assign(existing, values);
+    }
+    saveChange();
+    editingTagesplanId = null;
+    onChange();
+  });
+
+  form.querySelector("#cancel-tagesplan").onclick = () => { editingTagesplanId = null; onChange(); };
+  const deleteBtn = form.querySelector("#delete-tagesplan");
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      if (!confirm(`Diesen Tagesplan-Eintrag wirklich löschen?`)) return;
+      trip.tagesplan = trip.tagesplan.filter((x) => x.id !== existing.id);
+      saveChange();
+      editingTagesplanId = null;
+      onChange();
+    };
+  }
+
+  return form;
+}
+
+function renderIdeeForm(trip, onChange) {
+  const isNew = editingIdeeId === "__neu__";
+  const existing = isNew ? null : trip.ideen.find((i) => i.id === editingIdeeId);
+  const idee = existing || { idee: "", kategorie: "", ort: "", googleMaps: "", fahrzeit: "", bemerkung: "", link: "", kosten: "" };
+
+  const form = document.createElement("form");
+  form.className = "field-form panel";
+  form.innerHTML = `
+    <label>Idee<input type="text" name="idee" value="${escapeHtml(idee.idee)}" required /></label>
+    <label>Kategorie<input type="text" name="kategorie" value="${escapeHtml(idee.kategorie)}" placeholder="z. B. Ausflug, Restaurant, Baden ..." /></label>
+    <label>Ort<input type="text" name="ort" value="${escapeHtml(idee.ort)}" /></label>
+    <label>Google-Maps-Link<input type="url" name="googleMaps" value="${escapeHtml(idee.googleMaps)}" placeholder="https://maps.google.com/..." /></label>
+    <label>Fahrzeit<input type="text" name="fahrzeit" value="${escapeHtml(idee.fahrzeit)}" placeholder="z. B. 25 Min." /></label>
+    <label>Kosten ca.<input type="text" name="kosten" value="${escapeHtml(idee.kosten)}" /></label>
+    <label>Link<input type="url" name="link" value="${escapeHtml(idee.link)}" placeholder="https://..." /></label>
+    <label>Bemerkung<textarea name="bemerkung" rows="2">${escapeHtml(idee.bemerkung)}</textarea></label>
+    <div class="form-actions">
+      <button type="submit"><i class="ti ti-check"></i> Speichern</button>
+      <button type="button" id="cancel-idee" class="secondary">Abbrechen</button>
+      ${existing ? `<button type="button" id="delete-idee" class="danger"><i class="ti ti-trash"></i></button>` : ""}
     </div>
   `;
 
@@ -1485,29 +1664,30 @@ function renderProgrammForm(trip, onChange) {
     const fd = new FormData(form);
     const values = Object.fromEntries(fd.entries());
     if (isNew) {
-      trip.programm.push({ id: "prog" + Date.now() + Math.random().toString(36).slice(2, 6), ...values });
+      trip.ideen.push({ id: "idee" + Date.now() + Math.random().toString(36).slice(2, 6), ...values });
     } else {
       Object.assign(existing, values);
     }
     saveChange();
-    editingProgrammId = null;
+    editingIdeeId = null;
     onChange();
   });
 
-  form.querySelector("#cancel-programm").onclick = () => { editingProgrammId = null; onChange(); };
-  const deleteBtn = form.querySelector("#delete-programm");
+  form.querySelector("#cancel-idee").onclick = () => { editingIdeeId = null; onChange(); };
+  const deleteBtn = form.querySelector("#delete-idee");
   if (deleteBtn) {
     deleteBtn.onclick = () => {
-      if (!confirm(`"${existing.titel}" wirklich löschen?`)) return;
-      trip.programm = trip.programm.filter((x) => x.id !== existing.id);
+      if (!confirm(`"${existing.idee}" wirklich löschen?`)) return;
+      trip.ideen = trip.ideen.filter((x) => x.id !== existing.id);
       saveChange();
-      editingProgrammId = null;
+      editingIdeeId = null;
       onChange();
     };
   }
 
   return form;
 }
+
 // ===========================================================
 // TAB: FINANZEN (Ausgaben pro Ferien)
 // ===========================================================
