@@ -16,6 +16,8 @@ const collapsed = new Set();
 // Welche Unterkunft gerade im Bearbeiten-Formular offen ist:
 // null = kein Formular offen, "__neu__" = neue Unterkunft, sonst deren id
 let editingUnterkunftId = null;
+// true = das Formular zum Bearbeiten von Titel/Zeitraum der aktuellen Ferien ist offen
+let editingTrip = false;
 // Welches Item gerade eine offene Erinnerungs-Bearbeitung hat (Item-ID oder null)
 let editingReminderId = null;
 // Wetter-Cache pro Ferien-ID: { ort, current, daily, fetchedAt }
@@ -92,6 +94,34 @@ function getCurrentTrip() {
   return data.ferien.find((f) => f.id === currentTripId) || null;
 }
 
+/** Immer sichtbarer Umschalter im Kopfbereich, um schnell zwischen Ferien
+ *  zu wechseln - egal, in welchem Tab man gerade ist. */
+function renderTripSwitcher() {
+  const select = document.getElementById("trip-switcher");
+  if (!select) return;
+  const data = getData();
+
+  if (!data.ferien.length) {
+    select.classList.add("hidden");
+    return;
+  }
+  select.classList.remove("hidden");
+
+  const sorted = [...data.ferien].sort((a, b) => {
+    if (!a.von && !b.von) return 0;
+    if (!a.von) return 1;
+    if (!b.von) return -1;
+    return a.von.localeCompare(b.von);
+  });
+
+  select.innerHTML = sorted.map((f) => `<option value="${f.id}">${escapeHtml(f.titel)}</option>`).join("");
+  select.value = currentTripId;
+  select.onchange = () => {
+    currentTripId = select.value;
+    render();
+  };
+}
+
 function itemVisible(item, trip) {
   if (!item.nurWenn || item.nurWenn.length === 0) return true;
   return item.nurWenn.some((k) => trip.merkmale && trip.merkmale[k]);
@@ -104,6 +134,7 @@ function itemVisible(item, trip) {
 function render() {
   const trip = getCurrentTrip();
   document.getElementById("header-title").textContent = trip ? trip.titel : "Ferien-App";
+  renderTripSwitcher();
 
   const el = document.getElementById("tab-content");
 
@@ -305,7 +336,16 @@ function renderFerienTab(el, trip) {
 
     ${trip ? `
     <section class="panel">
-      <h2>Merkmale von "${escapeHtml(trip.titel)}"</h2>
+      <div class="panel-header-row">
+        <h2>${escapeHtml(trip.titel)}</h2>
+        <button id="edit-trip-button" class="link-button"><i class="ti ti-pencil"></i> Bearbeiten</button>
+      </div>
+      <p class="hint-small">${trip.von || trip.bis ? `${trip.von ? formatDate(trip.von) : "?"} – ${trip.bis ? formatDate(trip.bis) : "?"}` : "Noch kein Zeitraum hinterlegt"}</p>
+      <div id="trip-edit-form-container"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Merkmale</h2>
       <p class="hint-small">Bestimmen, welche Artikel/To-Dos automatisch angezeigt werden.</p>
       <div class="chip-row" id="merkmale-chips"></div>
     </section>
@@ -339,6 +379,15 @@ function renderFerienTab(el, trip) {
   document.getElementById("new-trip-button").onclick = createNewTrip;
 
   if (trip) {
+    document.getElementById("edit-trip-button").onclick = () => {
+      editingTrip = !editingTrip;
+      renderFerienTab(el, trip);
+    };
+    const formContainer = document.getElementById("trip-edit-form-container");
+    if (editingTrip) {
+      formContainer.appendChild(renderTripEditForm(trip, () => renderFerienTab(el, trip)));
+    }
+
     const chipRow = document.getElementById("merkmale-chips");
     MERKMALE_DEFS.forEach((m) => {
       const active = !!(trip.merkmale && trip.merkmale[m.key]);
@@ -356,6 +405,59 @@ function renderFerienTab(el, trip) {
 
     renderUnterkuenfte(el, trip);
   }
+}
+
+function formatDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
+/** Formular zum Bearbeiten von Titel und Zeitraum der aktuellen Ferien
+ *  (bislang liess sich das nur beim Anlegen per Prompt setzen). */
+function renderTripEditForm(trip, onChange) {
+  const form = document.createElement("form");
+  form.className = "field-form panel";
+  form.innerHTML = `
+    <label>Titel<input type="text" name="titel" value="${escapeHtml(trip.titel)}" required /></label>
+    <div class="field-row">
+      <label>Von<input type="date" name="von" value="${escapeHtml(trip.von || "")}" /></label>
+      <label>Bis<input type="date" name="bis" value="${escapeHtml(trip.bis || "")}" /></label>
+    </div>
+    <div class="form-actions">
+      <button type="submit"><i class="ti ti-check"></i> Speichern</button>
+      <button type="button" id="cancel-trip-edit" class="secondary">Abbrechen</button>
+      <button type="button" id="delete-trip" class="danger"><i class="ti ti-trash"></i></button>
+    </div>
+  `;
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    trip.titel = fd.get("titel").trim() || trip.titel;
+    trip.von = fd.get("von") || "";
+    trip.bis = fd.get("bis") || "";
+    saveChange();
+    editingTrip = false;
+    onChange();
+  });
+
+  form.querySelector("#cancel-trip-edit").onclick = () => {
+    editingTrip = false;
+    onChange();
+  };
+
+  form.querySelector("#delete-trip").onclick = () => {
+    if (!confirm(`"${trip.titel}" wirklich ganz löschen? Das kann nicht rückgängig gemacht werden.`)) return;
+    const data = getData();
+    data.ferien = data.ferien.filter((f) => f.id !== trip.id);
+    saveChange();
+    editingTrip = false;
+    currentTripId = data.ferien.length ? data.ferien[0].id : null;
+    render();
+  };
+
+  return form;
 }
 
 // ===========================================================
@@ -757,6 +859,39 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     onChange();
   };
   row.appendChild(bell);
+
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "icon-btn";
+  editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
+  editBtn.title = "Text/Kategorie bearbeiten";
+  editBtn.onclick = () => {
+    const neuerText = prompt("Text:", item.text);
+    if (neuerText === null) return;
+    const neueKategorie = prompt("Kategorie:", item.kategorie || "Allgemein");
+    if (neueKategorie === null) return;
+    item.text = neuerText.trim() || item.text;
+    item.kategorie = neueKategorie.trim() || "Allgemein";
+    saveChange();
+    onChange();
+  };
+  row.appendChild(editBtn);
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "icon-btn danger";
+  deleteBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+  deleteBtn.title = "Löschen";
+  deleteBtn.onclick = () => {
+    if (!confirm(`"${item.text}" wirklich löschen?`)) return;
+    const idx2 = siblingList.findIndex((i) => i.id === item.id);
+    if (idx2 !== -1) siblingList.splice(idx2, 1);
+    const trip2 = trip;
+    trip2[listKey] = trip2[listKey].filter((i) => i.id !== item.id);
+    saveChange();
+    onChange();
+  };
+  row.appendChild(deleteBtn);
 
   return row;
 }
