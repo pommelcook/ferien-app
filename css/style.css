@@ -240,6 +240,10 @@ main#tab-content {
   border-color: var(--green);
 }
 
+.merkmale-gruppe { margin-bottom: 12px; }
+.merkmale-gruppe:last-child { margin-bottom: 0; }
+.merkmale-gruppe-titel { font-weight: 600; text-transform: none; margin-bottom: 4px !important; }
+
 .list-toolbar { display: flex; justify-content: flex-end; margin-bottom: 4px; }
 
 .category { margin-bottom: 2px; }
