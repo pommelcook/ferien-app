@@ -25,7 +25,7 @@ const APP_CONFIG = {
 // ===========================================================
 // VERSION (wird im Tab "Mehr" angezeigt)
 // ===========================================================
-const APP_VERSION = "0.6.1";
+const APP_VERSION = "0.6.2";
 const APP_BUILD_DATE = "2026-09-30";
 
 // ===========================================================
@@ -338,11 +338,15 @@ function categoryIcon(name) {
 const MSAL_CONFIG = {
   auth: {
     clientId: APP_CONFIG.clientId,
-    authority: `https://login.microsoftonline.com/${APP_CONFIG.tenantId}`,
-    // Muss EXAKT der Adresse entsprechen, die in Azure als
-    // "Umleitungs-URI" hinterlegt ist. Solange die App noch nicht
-    // gehostet ist, funktioniert der Login-Redirect noch nicht -
-    // das wird nachgezogen, sobald eine echte Webadresse existiert.
+        // WICHTIG: "consumers" statt der eigenen Tenant-ID - benz.michael@bluewin.ch
+    // ist ein privates Microsoft-Konto (kein Geschäfts-/Schul-Konto). Mit der
+    // eigenen (leeren) "Default Directory"-Tenant-ID wurde zwar der Login
+    // erfolgreich abgeschlossen, aber Microsoft Graph hat "/me/drive" dann
+    // im Kontext dieses leeren Tenants gesucht - der hat keine SharePoint-
+    // Lizenz (SPO), daher der Fehler "Tenant does not have a SPO license".
+    // Mit "consumers" wird der Token im Kontext des echten privaten
+    // Microsoft-Kontos ausgestellt, wo das eigentliche OneDrive liegt.
+    authority: "https://login.microsoftonline.com/consumers",
     redirectUri: window.location.origin + window.location.pathname,
   },
   cache: {
