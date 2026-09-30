@@ -45,7 +45,14 @@ async function initStore() {
         appData = remote;
         saveLocal(appData);
       } else {
-        // Es gibt noch nicht hochgeladene lokale Änderungen -> versuchen, die zuerst zu sichern
+        // Es gibt noch nicht hochgeladene lokale Änderungen. Trotzdem schon
+        // jetzt Ferien aus der Cloud übernehmen, die hier lokal noch fehlen
+        // (z. B. auf einem anderen Gerät angelegt) - sonst blieben sie für
+        // immer unsichtbar, solange dieses Gerät "dirty" bleibt (das war die
+        // Ursache dafür, dass andernorts angelegte Ferien nie im Umschalter
+        // auftauchten). Die lokal ungespeicherten Änderungen bleiben erhalten
+        // und werden weiterhin normal hochsynchronisiert.
+        mergeMissingFerien(remote);
         await trySync();
       }
     } catch (e) {
@@ -55,6 +62,20 @@ async function initStore() {
 
   window.addEventListener("online", trySync);
   return appData;
+}
+
+/** Übernimmt Ferien aus der Cloud-Version, die es in den lokalen Daten (noch)
+ *  nicht gibt - damit Ferien, die auf einem anderen Gerät angelegt wurden,
+ *  nicht dauerhaft verschwinden, nur weil dieses Gerät gerade "dirty" ist. */
+function mergeMissingFerien(remote) {
+  if (!remote || !Array.isArray(remote.ferien)) return;
+  appData.ferien = appData.ferien || [];
+  const localIds = new Set(appData.ferien.map((f) => f.id));
+  const missing = remote.ferien.filter((f) => !localIds.has(f.id));
+  if (missing.length) {
+    appData.ferien = appData.ferien.concat(missing);
+    saveLocal(appData);
+  }
 }
 
 /** Änderung an den Daten: lokal sichern + Sync versuchen. */
