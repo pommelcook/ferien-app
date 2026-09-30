@@ -38,6 +38,29 @@ let reisetagOffset = null;
 // true = im Reisetag-Register werden ALLE offenen Positionen angezeigt (unabhängig
 // vom Termin), nicht nur jene mit aktuellem/vergangenem/fehlendem Datum.
 let reisetagShowAllOpen = false;
+// Kategorie-Filter im Reisetag-Register ("alle" = kein Filter) - gilt für
+// beide Abschnitte (To-Dos und Packliste) gemeinsam.
+let reisetagKategorieFilter = "alle";
+
+/** Setzt alle rein visuellen Ansichts-Einstellungen (Filter, Sortierung,
+ *  Gruppierung, Ein-/Ausklapp-Zustände, Matrix-Filter, Reisetag-Filter) auf
+ *  den Auslieferungszustand zurück - betrifft NICHT die eigentlichen Daten
+ *  (Packliste, To-Dos, Ferien, Artikel-Datenbank usw.), die bleiben
+ *  unangetastet. Nützlich, wenn man sich in Filtern/Ansichten "verklickt"
+ *  hat und schnell wieder einen neutralen Ausgangspunkt möchte. */
+function resetAnsichtEinstellungen() {
+  filterMode.packliste = "offen";
+  filterMode.todo = "offen";
+  groupBy.packliste = "kategorie";
+  groupBy.todo = "kategorie";
+  sortMode.packliste = "manuell";
+  sortMode.todo = "manuell";
+  collapsed.clear();
+  artikelViewMode = "liste";
+  artikelMatrixFilter = "alle";
+  reisetagShowAllOpen = false;
+  reisetagKategorieFilter = "alle";
+}
 // Einmalig/Fix-Wahl für die Inline-Erfassung auf der Reisetag-Seite (pro Liste)
 const reisetagNeuErfassungsTyp = { todo: "einmalig", packliste: "einmalig" };
 
@@ -671,15 +694,38 @@ function renderReisetagTab(el, trip) {
     : `<i class="ti ti-list-details"></i> Alle offenen Positionen anzeigen`;
   toggleAllBtn.onclick = () => { reisetagShowAllOpen = !reisetagShowAllOpen; onChange(); };
   nav.appendChild(toggleAllBtn);
+
+  // Kategorie-Filter: Auswahl aus allen Kategorien, die aktuell unter den
+  // fälligen/offenen Positionen (beider Abschnitte) vorkommen.
+  const alleSichtbarenItems = [...trip.todo, ...trip.packliste].filter((i) => reisetagItemMatches(i, trip, reisetagOffset, reisetagShowAllOpen));
+  const kategorienImAngebot = [...new Set(alleSichtbarenItems.map((i) => i.kategorie || "Allgemein"))].sort((a, b) => a.localeCompare(b, "de"));
+  if (kategorienImAngebot.length > 1) {
+    const katFilterLabel = document.createElement("label");
+    katFilterLabel.style.display = "block";
+    katFilterLabel.style.marginTop = "6px";
+    katFilterLabel.style.fontSize = "12px";
+    katFilterLabel.innerHTML = `<i class="ti ti-filter"></i> Kategorie
+      <select id="reisetag-kategorie-filter">
+        <option value="alle" ${reisetagKategorieFilter === "alle" ? "selected" : ""}>Alle Kategorien</option>
+        ${kategorienImAngebot.map((k) => `<option value="${escapeHtml(k)}" ${reisetagKategorieFilter === k ? "selected" : ""}>${escapeHtml(k)}</option>`).join("")}
+      </select>`;
+    nav.appendChild(katFilterLabel);
+  } else {
+    reisetagKategorieFilter = "alle";
+  }
   el.appendChild(nav);
+  const katFilterSelect = document.getElementById("reisetag-kategorie-filter");
+  if (katFilterSelect) katFilterSelect.onchange = (e) => { reisetagKategorieFilter = e.target.value; onChange(); };
+
+  const matchesKategorieFilter = (i) => reisetagKategorieFilter === "alle" || (i.kategorie || "Allgemein") === reisetagKategorieFilter;
 
   // --- To-Dos ---
-  const todosForDay = trip.todo.filter((i) => reisetagItemMatches(i, trip, reisetagOffset, reisetagShowAllOpen));
+  const todosForDay = trip.todo.filter((i) => reisetagItemMatches(i, trip, reisetagOffset, reisetagShowAllOpen) && matchesKategorieFilter(i));
   const todoSection = document.createElement("section");
   todoSection.className = "panel";
   const todoHeaderResult = collapsibleHeader(
     "reisetag:todos",
-    `<i class="ti ti-external-link reisetag-jump-icon" title="Zur To-Do-Liste" data-jump="todo"></i> ✅ To-Dos (${todosForDay.length})`,
+    `✅ To-Dos <i class="ti ti-external-link reisetag-jump-icon" title="Zur To-Do-Liste" data-jump="todo"></i> (${todosForDay.length})`,
     onChange
   );
   todoSection.appendChild(todoHeaderResult.header);
@@ -699,12 +745,12 @@ function renderReisetagTab(el, trip) {
   el.appendChild(todoSection);
 
   // --- Packliste: kein eigenes Termin-Feld, gilt daher immer als "ohne Datum" ---
-  const openPack = trip.packliste.filter((i) => reisetagItemMatches(i, trip, reisetagOffset, reisetagShowAllOpen));
+  const openPack = trip.packliste.filter((i) => reisetagItemMatches(i, trip, reisetagOffset, reisetagShowAllOpen) && matchesKategorieFilter(i));
   const packSection = document.createElement("section");
   packSection.className = "panel";
   const packHeaderResult = collapsibleHeader(
     "reisetag:packliste",
-    `<i class="ti ti-external-link reisetag-jump-icon" title="Zur Packliste" data-jump="packliste"></i> 🎒 Packliste (${openPack.length})`,
+    `🎒 Packliste <i class="ti ti-external-link reisetag-jump-icon" title="Zur Packliste" data-jump="packliste"></i> (${openPack.length})`,
     onChange
   );
   packSection.appendChild(packHeaderResult.header);
@@ -754,12 +800,18 @@ function reisetagItemRow(item, onChange) {
   });
   row.appendChild(cb);
 
-  if (item.prioritaet) {
-    const flag = document.createElement("i");
-    flag.className = "ti ti-flag-filled";
-    flag.style.color = "var(--amber-dark)";
-    row.appendChild(flag);
-  }
+  // Flaggen-Platz immer reservieren (auch wenn nicht prioritär), damit die
+  // Zeile beim Umschalten nicht seitlich springt - antippen wirkt wie der
+  // Prio-Button in den anderen Listen.
+  const flag = document.createElement("i");
+  flag.className = "ti ti-flag-filled reisetag-priority-flag" + (item.prioritaet ? " active" : "");
+  flag.title = item.prioritaet ? "Priorität entfernen" : "Als Priorität markieren";
+  flag.onclick = () => {
+    item.prioritaet = !item.prioritaet;
+    saveChange();
+    onChange();
+  };
+  row.appendChild(flag);
 
   const span = document.createElement("span");
   span.style.flex = "1";
@@ -1134,6 +1186,7 @@ function renderUnterkuenfte(el, trip) {
       ${etappe ? `<p class="u-dates"><i class="ti ti-map-pin"></i> ${escapeHtml(etappenLabel(trip, etappe))}</p>` : ""}
       ${zeitraum ? `<p class="u-dates">${escapeHtml(zeitraum)}</p>` : ""}
       ${ortZeile ? `<p class="u-adresse">${escapeHtml(ortZeile)}</p>` : ""}
+      ${u.naviAdresse ? `<p class="u-adresse"><i class="ti ti-navigation"></i> Navi: ${escapeHtml(u.naviAdresse)}</p>` : ""}
     `;
     card.onclick = () => {
       editingUnterkunftId = u.id;
@@ -1169,7 +1222,7 @@ function renderUnterkunftForm(trip, onChange) {
   const isNew = editingUnterkunftId === "__neu__";
   const existing = isNew ? null : trip.unterkuenfte.find((u) => u.id === editingUnterkunftId);
   const u = existing || {
-    name: "", adresse: "", plzOrt: "", land: "", von: "", bis: "", checkin: "", checkout: "",
+    name: "", adresse: "", plzOrt: "", land: "", naviAdresse: "", von: "", bis: "", checkin: "", checkout: "",
     buchungsnummer: "", vermieterName: "", telefon: "", email: "", zugangscode: "",
     wlanName: "", wlanPasswort: "",
     linkGoogleMaps: "", linkWebseite: "", linkBooking: "", linkAirbnb: "", linkSonstiges: "",
@@ -1200,6 +1253,7 @@ function renderUnterkunftForm(trip, onChange) {
       <label>PLZ / Ort<input type="text" name="plzOrt" value="${escapeHtml(u.plzOrt)}" /></label>
       <label>Land<input type="text" name="land" value="${escapeHtml(u.land)}" /></label>
     </div>
+    <label>Navi-Adresse (falls abweichend)<input type="text" name="naviAdresse" value="${escapeHtml(u.naviAdresse || "")}" placeholder="z. B. bei abgelegenen Chalets/Höfen - was man wirklich ins Navi eintippt" /></label>
     <div class="field-row">
       <label>Vermieter (Name)<input type="text" name="vermieterName" value="${escapeHtml(u.vermieterName)}" /></label>
       <label>Telefon<input type="text" name="telefon" value="${escapeHtml(u.telefon)}" /></label>
@@ -1925,6 +1979,53 @@ function etappenLabel(trip, etappe) {
   return nr + (etappe.titel || "Ohne Namen");
 }
 
+/** Popup für Packliste-Einträge, die mit der Artikel-Datenbank verknüpft
+ *  sind: zwei gleichwertige, klar beschriftete Optionen statt eines
+ *  confirm()-Dialogs (der eher wie eine Fehlermeldung wirkte und dessen
+ *  "Abbrechen" nicht nach einer echten Option klang). */
+function openLocalOderDbChoiceModal(item, onChange) {
+  const wrap = document.createElement("div");
+  wrap.className = "choice-modal";
+  wrap.innerHTML = `
+    <h3><i class="ti ti-link"></i> "${escapeHtml(item.text)}" bearbeiten</h3>
+    <p class="hint-small">Dieser Artikel ist mit der zentralen Artikel-Datenbank verknüpft. Wo möchtest du die Änderung vornehmen?</p>
+    <div class="choice-modal-options">
+      <button type="button" class="choice-option" id="choice-lokal">
+        <i class="ti ti-map-pin"></i>
+        <span><strong>Nur hier ändern</strong><span class="choice-desc">Gilt nur für diese Ferien - der DB-Artikel bleibt unverändert.</span></span>
+      </button>
+      <button type="button" class="choice-option choice-option-secondary" id="choice-db">
+        <i class="ti ti-database"></i>
+        <span><strong>In der Datenbank bearbeiten</strong><span class="choice-desc">Gilt für alle Ferien, auch künftige.</span></span>
+      </button>
+    </div>
+  `;
+  openModal(wrap, () => {});
+  wrap.querySelector("#choice-lokal").onclick = () => {
+    closeModal();
+    const neuerText = prompt("Text (gilt nur für diese Ferien):", item.text);
+    if (neuerText === null) return;
+    const neueKategorie = prompt("Kategorie:", item.kategorie || "Allgemein");
+    if (neueKategorie === null) return;
+    item.text = neuerText.trim() || item.text;
+    item.kategorie = neueKategorie.trim() || "Allgemein";
+    saveChange();
+    onChange();
+  };
+  wrap.querySelector("#choice-db").onclick = () => {
+    closeModal();
+    const katalog = ensureArtikelDatenbank();
+    const dbEntry = katalog.find((a) => a.text === item.text);
+    if (dbEntry) {
+      editingArtikelId = dbEntry.id || dbEntry.text;
+      openModal(
+        renderArtikelForm(katalog, () => { closeModal(); onChange(); }, dbEntry),
+        () => { editingArtikelId = null; }
+      );
+    }
+  };
+}
+
 function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, onChange) {
   const row = document.createElement("div");
   row.className = "item-row" + (item.erledigt ? " done" : "") + (item.nichtRelevant ? " not-relevant" : "") + (item.prioritaet ? " priority" : "");
@@ -1995,33 +2096,17 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
 
   // --- Aktions-Icons direkt nach der Checkbox (Zeilenanfang), damit man beim
   // schnellen Durchgehen einer Liste mit der Maus nicht jedes Mal ans
-  // Zeilenende fahren muss. Text/Badges folgen danach im flexiblen Bereich. ---
+  // Zeilenende fahren muss. Text/Badges folgen danach im flexiblen Bereich.
+  // Kein eigenes Bearbeiten-Icon mehr - ein Klick auf den Text öffnet direkt
+  // das Bearbeiten-Popup (siehe label weiter unten). ---
   const actionCluster = document.createElement("span");
   actionCluster.className = "item-row-actions";
 
-  const editBtn = document.createElement("button");
-  editBtn.type = "button";
-  editBtn.className = "icon-btn";
-  editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
-  editBtn.title = "Text/Kategorie bearbeiten";
-  editBtn.onclick = () => {
+  function openEditForItem() {
     const inDb = listKey === "packliste" && ensureArtikelDatenbank().some((a) => a.text === item.text);
     if (inDb) {
-      const editHier = confirm(
-        `"${item.text}" ist mit der Artikel-Datenbank verknüpft.\n\nOK = nur diesen Packliste-Eintrag (nur für diese Ferien) ändern.\nAbbrechen = stattdessen den Artikel in der zentralen Datenbank bearbeiten (gilt dann für alle Ferien, auch künftige).`
-      );
-      if (!editHier) {
-        const katalog = ensureArtikelDatenbank();
-        const dbEntry = katalog.find((a) => a.text === item.text);
-        if (dbEntry) {
-          editingArtikelId = dbEntry.id || dbEntry.text;
-          openModal(
-            renderArtikelForm(katalog, () => { closeModal(); onChange(); }, dbEntry),
-            () => { editingArtikelId = null; }
-          );
-        }
-        return;
-      }
+      openLocalOderDbChoiceModal(item, onChange);
+      return;
     }
     const neuerText = prompt("Text (gilt nur für diese Ferien):", item.text);
     if (neuerText === null) return;
@@ -2031,8 +2116,7 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     item.kategorie = neueKategorie.trim() || "Allgemein";
     saveChange();
     onChange();
-  };
-  actionCluster.appendChild(editBtn);
+  }
 
   const prioBtn = document.createElement("button");
   prioBtn.type = "button";
@@ -2113,8 +2197,11 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
   }
 
   const label = document.createElement("span");
+  label.className = "item-row-label";
   label.textContent = item.text;
   label.style.flex = "1";
+  label.title = "Antippen zum Bearbeiten";
+  label.onclick = openEditForItem;
   row.appendChild(label);
 
   if (item.erfassungsTyp === "einmalig" || item.erfassungsTyp === "fix") {
@@ -2229,11 +2316,21 @@ function renderEinstellungenTab(el) {
       <p class="hint-small">Status: ${notifLabel}. Erinnerungen kannst du pro Artikel/To-Do über das Glocken-Symbol setzen. Funktioniert nur, solange die App in einem Browser-Tab geöffnet ist (bzw. kurz danach) - echtes Push bei geschlossener App bräuchte einen eigenen Server, den diese rein statische App bewusst nicht hat.</p>
       ${notifSupported && notifPermission !== "granted" ? `<button id="enable-notif" class="secondary"><i class="ti ti-bell"></i> Benachrichtigungen aktivieren</button>` : ""}
     </section>
+    <section class="panel">
+      <h2><i class="ti ti-arrow-back-up"></i> Ansicht zurücksetzen</h2>
+      <p class="hint-small">Setzt Ein-/Ausklapp-Zustände, Filter, Sortierung und Gruppierung alle Listen auf den Standard zurück (z. B. wenn du dich in Filtern/Ansichten "verklickt" hast). Deine Daten (Packliste, To-Dos, Ferien usw.) bleiben unverändert.</p>
+      <button id="reset-ansicht-button" class="secondary"><i class="ti ti-refresh"></i> Ansicht zurücksetzen</button>
+    </section>
     <p class="version-footer">Ferien-App v${APP_VERSION} &middot; Stand ${APP_BUILD_DATE}</p>
   `;
   document.getElementById("logout-button").onclick = logout;
   document.getElementById("theme-light").onclick = () => { setTheme("light"); renderEinstellungenTab(el); };
   document.getElementById("theme-dark").onclick = () => { setTheme("dark"); renderEinstellungenTab(el); };
+  document.getElementById("reset-ansicht-button").onclick = () => {
+    if (!confirm("Ansicht (Filter, Sortierung, Ein-/Ausklapp-Zustände) auf Standard zurücksetzen? Deine Daten bleiben erhalten.")) return;
+    resetAnsichtEinstellungen();
+    render();
+  };
   const enableBtn = document.getElementById("enable-notif");
   if (enableBtn) {
     enableBtn.onclick = async () => {
@@ -2345,7 +2442,37 @@ function renderArtikelTab(el) {
       list.appendChild(renderArtikelMatrix(katalog, trip, () => renderArtikelTab(el)));
     }
   } else {
-    const sorted = [...katalog].sort((a, b) => getArtikelKategorien(a).join(",").localeCompare(getArtikelKategorien(b).join(",")) || a.text.localeCompare(b.text, "de"));
+    // Liste-Ansicht bekommt dieselben Merkmale wie die Matrix: Filter
+    // auf/nicht auf Packliste (gemeinsamer Zustand mit der Matrix, da
+    // Änderungen ohnehin für beide Ansichten gelten sollen), Graustufe für
+    // bereits gepackte Artikel, Bemerkungen sichtbar.
+    if (trip) {
+      const filterRow = document.createElement("div");
+      filterRow.className = "chip-row";
+      filterRow.style.marginBottom = "8px";
+      [
+        { key: "alle", label: "Alle", icon: "ti-list" },
+        { key: "aufPackliste", label: "Auf Packliste", icon: "ti-checkbox" },
+        { key: "nichtAufPackliste", label: "Nicht auf Packliste", icon: "ti-square" },
+      ].forEach((f) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip" + (artikelMatrixFilter === f.key ? " active" : "");
+        chip.innerHTML = `<i class="ti ${f.icon}"></i>${f.label}`;
+        chip.onclick = () => { artikelMatrixFilter = f.key; renderArtikelTab(el); };
+        filterRow.appendChild(chip);
+      });
+      list.appendChild(filterRow);
+    } else {
+      artikelMatrixFilter = "alle";
+    }
+
+    const gefiltert = katalog.filter((a) => {
+      if (artikelMatrixFilter === "alle" || !trip) return true;
+      const aufPackliste = trip.packliste.some((p) => p.text === a.text);
+      return artikelMatrixFilter === "aufPackliste" ? aufPackliste : !aufPackliste;
+    });
+    const sorted = [...gefiltert].sort((a, b) => getArtikelKategorien(a).join(",").localeCompare(getArtikelKategorien(b).join(",")) || a.text.localeCompare(b.text, "de"));
     const byKategorie = [];
     const byName = {};
     sorted.forEach((a) => {
@@ -2355,6 +2482,12 @@ function renderArtikelTab(el) {
       });
     });
     byKategorie.sort((g1, g2) => g1.kategorie.localeCompare(g2.kategorie, "de"));
+    if (!byKategorie.length) {
+      const empty = document.createElement("p");
+      empty.className = "hint-empty";
+      empty.textContent = "Keine Artikel für diesen Filter.";
+      list.appendChild(empty);
+    }
     byKategorie.forEach((g) => {
       const collapseKey = "artikel:" + g.kategorie;
       const { header, isCollapsed } = collapsibleHeader(
@@ -2370,17 +2503,22 @@ function renderArtikelTab(el) {
         const alreadyOnPackliste = !!(trip && trip.packliste.some((p) => p.text === a.text));
         const kategorien = getArtikelKategorien(a);
         const row = document.createElement("div");
-        row.className = "item-row";
-        row.innerHTML = `
-          <span style="flex:1">${escapeHtml(a.text)}${kategorien.length > 1 ? ` <span class="hint-small" style="margin:0">(${kategorien.map(escapeHtml).join(", ")})</span>` : ""}${alreadyOnPackliste ? ` <span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i> auf Packliste</span>` : ""}${merkmaleLabels.length ? `<br /><span class="hint-small" style="margin:0">${merkmaleLabels.map(escapeHtml).join(", ")}</span>` : ""}${a.bemerkung ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-message-2"></i> ${escapeHtml(a.bemerkung)}</span>` : ""}</span>
-        `;
+        row.className = "item-row" + (alreadyOnPackliste ? " item-row-on-packliste" : "");
+        const textSpan = document.createElement("span");
+        textSpan.style.flex = "1";
+        textSpan.innerHTML = `${escapeHtml(a.text)}${kategorien.length > 1 ? ` <span class="hint-small" style="margin:0">(${kategorien.map(escapeHtml).join(", ")})</span>` : ""}${alreadyOnPackliste ? ` <span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i> auf Packliste</span>` : ""}${merkmaleLabels.length ? `<br /><span class="hint-small" style="margin:0">${merkmaleLabels.map(escapeHtml).join(", ")}</span>` : ""}${a.bemerkung ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-message-2"></i> ${escapeHtml(a.bemerkung)}</span>` : ""}`;
+        // Klick auf den Text öffnet direkt das Bearbeiten-Popup (kein
+        // separates Bleistift-Icon mehr nötig, spart Platz in der Zeile).
+        textSpan.onclick = () => { editingArtikelId = a.id; renderArtikelTab(el); };
+        row.appendChild(textSpan);
         if (trip) {
           const addBtn = document.createElement("button");
           addBtn.type = "button";
           addBtn.className = "icon-btn";
           addBtn.innerHTML = `<i class="ti ti-plus"></i>`;
           addBtn.title = `Zu Packliste von "${trip.titel}" hinzufügen`;
-          addBtn.onclick = () => {
+          addBtn.onclick = (e) => {
+            e.stopPropagation();
             trip.packliste.push({
               id: "i" + Date.now() + Math.random().toString(36).slice(2, 6),
               text: a.text,
@@ -2390,21 +2528,17 @@ function renderArtikelTab(el) {
               ...(a.merkmale && a.merkmale.length ? { nurWenn: a.merkmale } : {}),
             });
             saveChange();
-            alert(`"${a.text}" wurde zur Packliste von "${trip.titel}" hinzugefügt.`);
+            renderArtikelTab(el);
           };
           row.appendChild(addBtn);
         }
-        const editBtn = document.createElement("button");
-        editBtn.type = "button";
-        editBtn.className = "icon-btn";
-        editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
-        editBtn.onclick = () => { editingArtikelId = a.id; renderArtikelTab(el); };
-        row.appendChild(editBtn);
         const delBtn = document.createElement("button");
         delBtn.type = "button";
         delBtn.className = "icon-btn danger";
         delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
-        delBtn.onclick = () => {
+        delBtn.title = "Löschen";
+        delBtn.onclick = (e) => {
+          e.stopPropagation();
           if (!confirm(`"${a.text}" wirklich aus dem Katalog löschen?`)) return;
           const data = getData();
           data.artikelDatenbank = data.artikelDatenbank.filter((x) => x.id !== a.id);
@@ -2461,21 +2595,48 @@ function renderArtikelMatrix(katalog, trip, onChange) {
   table.className = "artikel-matrix";
 
   const thead = document.createElement("thead");
+
+  // Zweite Kopfzeile: Merkmale nach ihrer Gruppe (z. B. "Transport": Auto/
+  // VW-Bus/Flugzeug/öV) farblich hervorheben, damit auf einen Blick klar
+  // ist, welche Spalten zusammengehören - je Gruppe eine Akzentfarbe aus
+  // einer kleinen, zyklisch wiederholten Palette.
+  const MATRIX_GRUPPEN_FARBEN = ["#e8f5e9", "#e3f2fd", "#fff3e0", "#f3e5f5", "#fce4ec", "#e0f7fa", "#fff9c4"];
+  const gruppen = groupMerkmale(defs);
+  const gruppenRow = document.createElement("tr");
+  gruppenRow.className = "matrix-gruppen-row";
+  gruppenRow.innerHTML = `<th class="matrix-artikel-col"></th><th class="matrix-bemerkung-col"></th>`;
+  gruppen.forEach((g, gIdx) => {
+    const th = document.createElement("th");
+    th.colSpan = g.items.length;
+    th.textContent = g.gruppe;
+    th.style.background = MATRIX_GRUPPEN_FARBEN[gIdx % MATRIX_GRUPPEN_FARBEN.length];
+    gruppenRow.appendChild(th);
+  });
+  gruppenRow.innerHTML += `<th></th>`;
+  thead.appendChild(gruppenRow);
+
   const headRow = document.createElement("tr");
   headRow.innerHTML = `<th class="matrix-artikel-col">Artikel</th><th class="matrix-bemerkung-col">Bemerkung</th>`;
-  defs.forEach((m) => {
-    const th = document.createElement("th");
-    th.title = m.label;
-    th.innerHTML = `<i class="ti ${m.icon}"></i>`;
-    // Tooltip (title) hilft am PC; zusätzlich per Klick/Tap anzeigen, da
-    // Touch-Geräte kein Mouseover kennen.
-    th.style.cursor = "help";
-    th.onclick = () => alert(m.label);
-    headRow.appendChild(th);
+  gruppen.forEach((g, gIdx) => {
+    g.items.forEach((m) => {
+      const th = document.createElement("th");
+      th.title = m.label;
+      th.style.background = MATRIX_GRUPPEN_FARBEN[gIdx % MATRIX_GRUPPEN_FARBEN.length];
+      th.innerHTML = `<i class="ti ${m.icon}"></i>`;
+      // Tooltip (title) hilft am PC; zusätzlich per Klick/Tap anzeigen, da
+      // Touch-Geräte kein Mouseover kennen.
+      th.style.cursor = "help";
+      th.onclick = () => alert(`${g.gruppe}: ${m.label}`);
+      headRow.appendChild(th);
+    });
   });
   headRow.innerHTML += `<th></th>`;
   thead.appendChild(headRow);
   table.appendChild(thead);
+
+  // Spaltenreihenfolge der Checkboxen muss zur Kopfzeile passen (dort nach
+  // Gruppen sortiert) - daher hier dieselbe, nach Gruppen geflachte Liste.
+  const orderedDefs = gruppen.flatMap((g) => g.items);
 
   const tbody = document.createElement("tbody");
 
@@ -2498,7 +2659,7 @@ function renderArtikelMatrix(katalog, trip, onChange) {
   if (!byKategorie.length) {
     const emptyRow = document.createElement("tr");
     const emptyCell = document.createElement("td");
-    emptyCell.colSpan = defs.length + 3;
+    emptyCell.colSpan = orderedDefs.length + 3;
     emptyCell.className = "hint-empty";
     emptyCell.textContent = "Keine Artikel für diesen Filter.";
     emptyRow.appendChild(emptyCell);
@@ -2506,13 +2667,24 @@ function renderArtikelMatrix(katalog, trip, onChange) {
   }
 
   byKategorie.forEach((g) => {
+    // Jede Kategorie einzeln einklappbar (nicht nur die ganze Matrix) -
+    // eigener Collapse-Key pro Kategorie innerhalb der Matrix.
+    const collapseKey = "artikel:matrix:" + g.kategorie;
+    const isKatCollapsed = collapsed.has(collapseKey);
     const katRow = document.createElement("tr");
     katRow.className = "matrix-kategorie-row";
+    katRow.style.cursor = "pointer";
     const katCell = document.createElement("td");
-    katCell.colSpan = defs.length + 3;
-    katCell.innerHTML = `<i class="ti ${categoryIcon(g.kategorie)}"></i> ${escapeHtml(g.kategorie)}`;
+    katCell.colSpan = orderedDefs.length + 3;
+    katCell.innerHTML = `<i class="ti ti-chevron-${isKatCollapsed ? "right" : "down"}"></i> <i class="ti ${categoryIcon(g.kategorie)}"></i> ${escapeHtml(g.kategorie)} <span class="hint-small" style="margin:0">(${g.items.length})</span>`;
+    katRow.onclick = () => {
+      if (isKatCollapsed) collapsed.delete(collapseKey);
+      else collapsed.add(collapseKey);
+      onChange();
+    };
     katRow.appendChild(katCell);
     tbody.appendChild(katRow);
+    if (isKatCollapsed) return;
 
     g.items.forEach((a) => {
       const alreadyOnPackliste = !!(trip && trip.packliste.some((p) => p.text === a.text));
@@ -2521,15 +2693,21 @@ function renderArtikelMatrix(katalog, trip, onChange) {
       const nameCell = document.createElement("td");
       nameCell.className = "matrix-artikel-col";
       nameCell.innerHTML = `${escapeHtml(a.text)}${alreadyOnPackliste ? ` <span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i></span>` : ""}`;
+      // Klick auf Artikel-Namen oder Bemerkung öffnet direkt das
+      // Bearbeiten-Popup (kein separates Bleistift-Icon mehr nötig).
+      nameCell.style.cursor = "pointer";
+      nameCell.onclick = () => { editingArtikelId = a.id; onChange(); };
       row.appendChild(nameCell);
 
       const bemerkungCell = document.createElement("td");
       bemerkungCell.className = "matrix-bemerkung-col";
       bemerkungCell.textContent = a.bemerkung || "";
+      bemerkungCell.style.cursor = "pointer";
+      bemerkungCell.onclick = () => { editingArtikelId = a.id; onChange(); };
       row.appendChild(bemerkungCell);
 
       const selected = new Set(a.merkmale || []);
-      defs.forEach((m) => {
+      orderedDefs.forEach((m) => {
         const cell = document.createElement("td");
         const cb = document.createElement("input");
         cb.type = "checkbox";
@@ -2567,16 +2745,11 @@ function renderArtikelMatrix(katalog, trip, onChange) {
         };
         actionsCell.appendChild(addBtn);
       }
-      const editBtn = document.createElement("button");
-      editBtn.type = "button";
-      editBtn.className = "icon-btn";
-      editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
-      editBtn.onclick = () => { editingArtikelId = a.id; onChange(); };
-      actionsCell.appendChild(editBtn);
       const delBtn = document.createElement("button");
       delBtn.type = "button";
       delBtn.className = "icon-btn danger";
       delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+      delBtn.title = "Löschen";
       delBtn.onclick = () => {
         if (!confirm(`"${a.text}" wirklich aus dem Katalog löschen?`)) return;
         const data = getData();
