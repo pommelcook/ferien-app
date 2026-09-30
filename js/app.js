@@ -25,6 +25,59 @@ const weatherCache = {};
 // Drag&Drop-Status beim Verschieben von Listeneinträgen
 let dragState = null;
 
+// ===========================================================
+// NAVIGATION (Kacheln) - vom Nutzer sortierbar, siehe Einstellungen
+// ===========================================================
+// "start"/"ferien" und "einstellungen" sind fest (immer zuerst bzw. immer
+// zuletzt), alle anderen Kacheln kann der Nutzer in "Einstellungen" per
+// Pfeiltasten umsortieren (data.tabOrder).
+const TAB_DEFS = {
+  start: { icon: "ti-home", label: "Start" },
+  ferien: { icon: "ti-beach", label: "Ferien" },
+  packliste: { icon: "ti-checkbox", label: "Packliste" },
+  todo: { icon: "ti-list-check", label: "To-Do" },
+  artikel: { icon: "ti-list-details", label: "Artikel-DB" },
+  programm: { icon: "ti-calendar-event", label: "Programm" },
+  finanzen: { icon: "ti-cash", label: "Finanzen" },
+  merkmale: { icon: "ti-tags", label: "Merkmale" },
+};
+const FIXED_FIRST_TABS = ["start", "ferien"];
+const FIXED_LAST_TAB = "einstellungen";
+const DEFAULT_SORTABLE_TABS = ["packliste", "todo", "artikel", "programm", "finanzen", "merkmale"];
+
+/** Liefert die aktuell sortierbaren Kacheln (ohne start/ferien/einstellungen),
+ *  in der vom Nutzer gewählten Reihenfolge. Neue, dem Nutzer noch unbekannte
+ *  Kacheln (z. B. nach einem App-Update) werden automatisch hinten angehängt. */
+function getSortableTabs() {
+  const data = getData();
+  const known = Object.keys(TAB_DEFS).filter((k) => !FIXED_FIRST_TABS.includes(k));
+  const stored = (data && data.tabOrder && data.tabOrder.length) ? data.tabOrder : DEFAULT_SORTABLE_TABS;
+  const cleaned = stored.filter((k) => known.includes(k));
+  known.forEach((k) => { if (!cleaned.includes(k)) cleaned.push(k); });
+  return cleaned;
+}
+
+function renderNavBars() {
+  const order = [...FIXED_FIRST_TABS, ...getSortableTabs()];
+  const buttonsHtml = order.map((id) => {
+    const def = TAB_DEFS[id];
+    if (!def) return "";
+    return `<button class="nav-tab${currentTab === id ? " active" : ""}" data-tab="${id}"><i class="ti ${def.icon}"></i><span>${def.label}</span></button>`;
+  }).join("") + `<button class="nav-tab${currentTab === FIXED_LAST_TAB ? " active" : ""}" data-tab="${FIXED_LAST_TAB}"><i class="ti ti-settings"></i><span>Einstellungen</span></button>`;
+
+  const sidebar = document.getElementById("sidebar-nav");
+  const tabBar = document.getElementById("tab-bar-nav");
+  if (sidebar) sidebar.innerHTML = `<p class="sidebar-title">Verwalten</p>${buttonsHtml}`;
+  if (tabBar) tabBar.innerHTML = buttonsHtml;
+
+  document.querySelectorAll(".nav-tab").forEach((btn) => {
+    btn.onclick = () => {
+      currentTab = btn.dataset.tab;
+      render();
+    };
+  });
+}
+
 function initTheme() {
   const stored = localStorage.getItem("ferienapp_theme");
   const theme = stored || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
@@ -39,6 +92,7 @@ function setTheme(theme) {
 function getTheme() {
   return document.documentElement.getAttribute("data-theme") || "light";
 }
+
 async function main() {
   initTheme();
   registerServiceWorker();
@@ -61,7 +115,6 @@ async function main() {
     currentTripId = data.ferien[0].id;
   }
 
-  wireTabBar();
   render();
 
   // Erinnerungen: gleich beim Start fällige prüfen, danach jede Minute erneut
@@ -75,23 +128,11 @@ function showLoginScreen() {
   document.getElementById("login-button").addEventListener("click", login);
 }
 
-function wireTabBar() {
-  // ".nav-tab" existiert zweimal im HTML: einmal in der unteren Tab-Leiste
-  // (Handy) und einmal in der Seitenleiste (PC, siehe style.css). Beide
-  // Sätze von Buttons werden hier gemeinsam bedient und synchron gehalten.
-  document.querySelectorAll(".nav-tab").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      currentTab = btn.dataset.tab;
-      document.querySelectorAll(".nav-tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === currentTab));
-      render();
-    });
-  });
-}
-
 function getCurrentTrip() {
   const data = getData();
   return data.ferien.find((f) => f.id === currentTripId) || null;
 }
+
 /** Immer sichtbarer Umschalter im Kopfbereich, um schnell zwischen Ferien
  *  zu wechseln - egal, in welchem Tab man gerade ist. */
 function renderTripSwitcher() {
@@ -133,12 +174,13 @@ function render() {
   const trip = getCurrentTrip();
   document.getElementById("header-title").textContent = trip ? trip.titel : "Ferien-App";
   renderTripSwitcher();
+  renderNavBars();
 
   const el = document.getElementById("tab-content");
 
   if (currentTab === "start") return renderStartTab(el, trip);
   if (currentTab === "ferien") return renderFerienTab(el, trip);
-  if (currentTab === "mehr") return renderMehrTab(el);
+  if (currentTab === "einstellungen") return renderEinstellungenTab(el);
   if (currentTab === "artikel") return renderArtikelTab(el);
   if (currentTab === "merkmale") return renderMerkmaleTab(el);
   if (currentTab === "programm") return renderProgrammTab(el, trip);
@@ -182,6 +224,7 @@ function renderStartTab(el, trip) {
     .slice(0, 3);
 
   const aktiveMerkmale = getMerkmaleDefs().filter((m) => trip.merkmale && trip.merkmale[m.key]);
+
   el.innerHTML = `
     <section class="panel dashboard-hero">
       <p class="hint-small">${escapeHtml(trip.titel)}</p>
@@ -293,7 +336,6 @@ async function loadWeatherPanel(trip) {
     panel.innerHTML = `<p class="hint-small">Wetter aktuell nicht abrufbar.</p>`;
   }
 }
-
 function renderWeatherPanel(panel, w) {
   const days = (w.daily.time || []).slice(1, 4);
   panel.innerHTML = `
@@ -319,6 +361,7 @@ function formatTermin(t) {
   if (n > 0) return `+${n} Tag${n === 1 ? "" : "e"}`;
   return `${Math.abs(n)} Tag${Math.abs(n) === 1 ? "" : "e"} vorher`;
 }
+
 // ===========================================================
 // TAB: FERIEN (Reise wählen/anlegen + Merkmale einstellen)
 // ===========================================================
@@ -429,7 +472,6 @@ function renderTripEditForm(trip, onChange) {
       <button type="button" id="delete-trip" class="danger"><i class="ti ti-trash"></i></button>
     </div>
   `;
-
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -458,6 +500,7 @@ function renderTripEditForm(trip, onChange) {
 
   return form;
 }
+
 // ===========================================================
 // UNTERKÜNFTE (Kacheln + Formular, direkt am Handy bearbeitbar)
 // ===========================================================
@@ -572,14 +615,36 @@ function createNewTrip() {
 
   const data = getData();
   const id = titel.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Date.now();
+
+  // Packliste und To-Do werden aus dem zentralen Katalog / der Standard-Vorlage
+  // vorbefüllt (wie im Excel-Master), gefiltert nach Merkmalen läuft danach
+  // automatisch über itemVisible() weiter - so ist keine Ferien mehr "leer".
+  const katalog = ensureArtikelDatenbank();
+  const packliste = katalog.map((a, i) => ({
+    id: "i" + Date.now() + Math.random().toString(36).slice(2, 6) + i,
+    text: a.text,
+    erledigt: false,
+    kategorie: a.kategorie || "Allgemein",
+    sort: i,
+    ...(a.merkmale && a.merkmale.length ? { nurWenn: a.merkmale } : {}),
+  }));
+  const todo = DEFAULT_TODO_VORLAGE.map((t, i) => ({
+    id: "i" + Date.now() + Math.random().toString(36).slice(2, 6) + "t" + i,
+    text: t.text,
+    erledigt: false,
+    kategorie: t.kategorie || "Allgemein",
+    sort: i,
+    ...(t.merkmale && t.merkmale.length ? { nurWenn: t.merkmale } : {}),
+  }));
+
   data.ferien.push({
     id,
     titel,
     von: "",
     bis: "",
     merkmale: {},
-    packliste: [],
-    todo: [],
+    packliste,
+    todo,
     unterkuenfte: [],
     programm: [],
     finanzen: [],
@@ -608,11 +673,22 @@ function ensureMerkmaleDefs() {
   return data.merkmaleDefs;
 }
 
+/** Stellt sicher, dass der zentrale Artikel-Katalog existiert - beim allerersten
+ *  Öffnen wird er aus dem im Excel-Master gepflegten Standard-Katalog befüllt
+ *  (DEFAULT_ARTIKEL_DATENBANK aus config.js), danach ist er frei bearbeitbar. */
 function ensureArtikelDatenbank() {
   const data = getData();
-  data.artikelDatenbank = data.artikelDatenbank || [];
+  if (!data.artikelDatenbank || !data.artikelDatenbank.length) {
+    data.artikelDatenbank = DEFAULT_ARTIKEL_DATENBANK.map((a, i) => ({
+      id: "art-default-" + i,
+      kategorie: a.kategorie,
+      text: a.text,
+      merkmale: [...(a.merkmale || [])],
+    }));
+  }
   return data.artikelDatenbank;
 }
+
 // ===========================================================
 // TAB: PACKLISTE / TO-DO (kategorisierte Liste mit Filtern)
 // ===========================================================
@@ -649,7 +725,6 @@ function renderListTab(el, trip, key, icon, placeholder) {
       <button type="submit"><i class="ti ti-plus"></i></button>
     </form>
   `;
-
   if (isTodo) {
     document.getElementById("toggle-group").onclick = () => {
       groupBy[key] = mode === "termin" ? "kategorie" : "termin";
@@ -722,6 +797,7 @@ function renderListTab(el, trip, key, icon, placeholder) {
     renderListTab(el, trip, key, icon, placeholder);
   });
 }
+
 /** Gruppiert Items entweder nach "kategorie" (Text) oder "termin" (Tage vor Abreise),
  *  und sortiert innerhalb jeder Gruppe entweder manuell (item.sort) oder A-Z. */
 function groupItems(items, mode, sort) {
@@ -748,7 +824,6 @@ function groupItems(items, mode, sort) {
   const cats = categories.length ? categories : ["Allgemein"];
   return cats.map((c) => ({ name: c, items: sortGroup(items.filter((i) => (i.kategorie || "Allgemein") === c)) }));
 }
-
 function renderCategory(trip, listKey, groupName, groupItemsList, showTermin, onChange) {
   const collapseKey = listKey + ":" + groupBy[listKey] + ":" + groupName;
   const isCollapsed = collapsed.has(collapseKey);
@@ -791,6 +866,7 @@ function renderCategory(trip, listKey, groupName, groupItemsList, showTermin, on
 function reassignSort(list) {
   list.forEach((item, idx) => { item.sort = idx; });
 }
+
 function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, onChange) {
   const row = document.createElement("div");
   row.className = "item-row" + (item.erledigt ? " done" : "");
@@ -847,7 +923,6 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     moveButtons.appendChild(downBtn);
     row.appendChild(moveButtons);
   }
-
   const cb = document.createElement("input");
   cb.type = "checkbox";
   cb.checked = item.erledigt;
@@ -917,6 +992,7 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
 
   return row;
 }
+
 function reminderForm(item, onChange) {
   const form = document.createElement("form");
   form.className = "reminder-form";
@@ -951,7 +1027,6 @@ function reminderForm(item, onChange) {
   }
   return form;
 }
-
 // ===========================================================
 // ERINNERUNGEN (Browser-Notification API)
 // ===========================================================
@@ -986,15 +1061,17 @@ function checkReminders() {
   });
   if (changed) saveChange();
 }
+
 // ===========================================================
-// TAB: MEHR
+// TAB: EINSTELLUNGEN
 // ===========================================================
 
-function renderMehrTab(el) {
+function renderEinstellungenTab(el) {
   const theme = getTheme();
   const notifSupported = typeof Notification !== "undefined";
   const notifPermission = notifSupported ? Notification.permission : "nicht unterstützt";
   const notifLabel = { granted: "aktiviert", denied: "blockiert (in Browser-Einstellungen ändern)", default: "noch nicht aktiviert" }[notifPermission] || notifPermission;
+  const sortable = getSortableTabs();
 
   el.innerHTML = `
     <section class="panel">
@@ -1017,32 +1094,63 @@ function renderMehrTab(el) {
       ${notifSupported && notifPermission !== "granted" ? `<button id="enable-notif" class="secondary"><i class="ti ti-bell"></i> Benachrichtigungen aktivieren</button>` : ""}
     </section>
     <section class="panel">
-      <h2><i class="ti ti-settings"></i> Verwaltung</h2>
-      <p class="hint-small">Zentrale Kataloge und zusätzliche Register pro Ferien - die "Admin-Sicht" auf alle Daten.</p>
-      <div class="verwaltung-grid">
-        <button class="secondary" data-goto="artikel"><i class="ti ti-list-details"></i> Artikel-Datenbank</button>
-        <button class="secondary" data-goto="programm"><i class="ti ti-calendar-event"></i> Programm</button>
-        <button class="secondary" data-goto="finanzen"><i class="ti ti-cash"></i> Finanzen</button>
-        <button class="secondary" data-goto="merkmale"><i class="ti ti-tags"></i> Merkmale verwalten</button>
-      </div>
+      <h2><i class="ti ti-arrows-sort"></i> Kacheln anordnen</h2>
+      <p class="hint-small">Lege fest, in welcher Reihenfolge Artikel-Datenbank, Programm, Finanzen usw. in der Navigation erscheinen.</p>
+      <div id="tab-order-list" class="tab-order-list"></div>
     </section>
     <p class="version-footer">Ferien-App v${APP_VERSION} &middot; Stand ${APP_BUILD_DATE}</p>
   `;
   document.getElementById("logout-button").onclick = logout;
-  document.getElementById("theme-light").onclick = () => { setTheme("light"); renderMehrTab(el); };
-  document.getElementById("theme-dark").onclick = () => { setTheme("dark"); renderMehrTab(el); };
+  document.getElementById("theme-light").onclick = () => { setTheme("light"); renderEinstellungenTab(el); };
+  document.getElementById("theme-dark").onclick = () => { setTheme("dark"); renderEinstellungenTab(el); };
   const enableBtn = document.getElementById("enable-notif");
   if (enableBtn) {
     enableBtn.onclick = async () => {
       await Notification.requestPermission();
-      renderMehrTab(el);
+      renderEinstellungenTab(el);
       checkReminders();
     };
   }
-  document.querySelectorAll("[data-goto]").forEach((b) => {
-    b.onclick = () => { currentTab = b.dataset.goto; render(); };
+  const orderListEl = document.getElementById("tab-order-list");
+  sortable.forEach((tabId, idx) => {
+    const def = TAB_DEFS[tabId];
+    if (!def) return;
+    const row = document.createElement("div");
+    row.className = "tab-order-row";
+    row.innerHTML = `<span><i class="ti ${def.icon}"></i> ${escapeHtml(def.label)}</span>`;
+    const moveButtons = document.createElement("div");
+    moveButtons.className = "move-buttons";
+    const upBtn = document.createElement("button");
+    upBtn.type = "button";
+    upBtn.innerHTML = `<i class="ti ti-chevron-up"></i>`;
+    upBtn.disabled = idx === 0;
+    upBtn.onclick = () => {
+      if (idx === 0) return;
+      [sortable[idx - 1], sortable[idx]] = [sortable[idx], sortable[idx - 1]];
+      getData().tabOrder = sortable;
+      saveChange();
+      renderEinstellungenTab(el);
+      renderNavBars();
+    };
+    const downBtn = document.createElement("button");
+    downBtn.type = "button";
+    downBtn.innerHTML = `<i class="ti ti-chevron-down"></i>`;
+    downBtn.disabled = idx === sortable.length - 1;
+    downBtn.onclick = () => {
+      if (idx === sortable.length - 1) return;
+      [sortable[idx + 1], sortable[idx]] = [sortable[idx], sortable[idx + 1]];
+      getData().tabOrder = sortable;
+      saveChange();
+      renderEinstellungenTab(el);
+      renderNavBars();
+    };
+    moveButtons.appendChild(upBtn);
+    moveButtons.appendChild(downBtn);
+    row.appendChild(moveButtons);
+    orderListEl.appendChild(row);
   });
 }
+
 // ===========================================================
 // VERWALTUNG: ARTIKEL-DATENBANK (zentraler Katalog, unabhängig von Ferien)
 // ===========================================================
@@ -1053,7 +1161,6 @@ function renderArtikelTab(el) {
   const trip = getCurrentTrip();
 
   el.innerHTML = `
-    <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
     <section class="panel">
       <h2><i class="ti ti-list-details"></i> Artikel-Datenbank</h2>
       <p class="hint-small">Zentraler Katalog aller Artikel, unabhängig von einzelnen Ferien. Von hier lässt sich ein Artikel direkt in die Packliste der aktuell gewählten Ferien übernehmen.</p>
@@ -1062,8 +1169,6 @@ function renderArtikelTab(el) {
     </section>
     <div id="artikel-form-container"></div>
   `;
-
-  document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
 
   const list = document.getElementById("artikel-list");
   if (!katalog.length) {
@@ -1127,6 +1232,7 @@ function renderArtikelTab(el) {
     formContainer.appendChild(renderArtikelForm(katalog, () => renderArtikelTab(el)));
   }
 }
+
 function renderArtikelForm(katalog, onChange) {
   const isNew = editingArtikelId === "__neu__";
   const existing = isNew ? null : katalog.find((a) => a.id === editingArtikelId);
@@ -1204,7 +1310,6 @@ function renderMerkmaleTab(el) {
   const defs = ensureMerkmaleDefs();
 
   el.innerHTML = `
-    <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
     <section class="panel">
       <h2><i class="ti ti-tags"></i> Merkmale verwalten</h2>
       <p class="hint-small">Merkmale bestimmen, welche Artikel/To-Dos je nach Ferienart automatisch angezeigt werden (z. B. "Winter", "Ausland").</p>
@@ -1213,8 +1318,6 @@ function renderMerkmaleTab(el) {
     </section>
     <div id="merkmal-form-container"></div>
   `;
-
-  document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
 
   const list = document.getElementById("merkmal-list");
   defs.forEach((m) => {
@@ -1249,6 +1352,7 @@ function renderMerkmaleTab(el) {
     formContainer.appendChild(renderMerkmalForm(defs, () => renderMerkmaleTab(el)));
   }
 }
+
 function renderMerkmalForm(defs, onChange) {
   const isNew = editingMerkmalKey === "__neu__";
   const existing = isNew ? null : defs.find((m) => m.key === editingMerkmalKey);
@@ -1295,10 +1399,8 @@ let editingProgrammId = null;
 function renderProgrammTab(el, trip) {
   if (!trip) {
     el.innerHTML = `
-      <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
       <p class="hint">Noch keine Ferien angelegt.</p>
     `;
-    document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
     return;
   }
   trip.programm = trip.programm || [];
@@ -1306,7 +1408,6 @@ function renderProgrammTab(el, trip) {
   const sorted = [...trip.programm].sort((a, b) => (a.datum || "").localeCompare(b.datum || "") || (a.zeit || "").localeCompare(b.zeit || ""));
 
   el.innerHTML = `
-    <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
     <section class="panel">
       <h2><i class="ti ti-calendar-event"></i> Programm - ${escapeHtml(trip.titel)}</h2>
       <div id="programm-list"></div>
@@ -1314,8 +1415,6 @@ function renderProgrammTab(el, trip) {
     </section>
     <div id="programm-form-container"></div>
   `;
-
-  document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
 
   const list = document.getElementById("programm-list");
   if (!sorted.length) {
@@ -1358,6 +1457,7 @@ function renderProgrammTab(el, trip) {
     formContainer.appendChild(renderProgrammForm(trip, () => renderProgrammTab(el, trip)));
   }
 }
+
 function renderProgrammForm(trip, onChange) {
   const isNew = editingProgrammId === "__neu__";
   const existing = isNew ? null : trip.programm.find((p) => p.id === editingProgrammId);
@@ -1416,10 +1516,8 @@ let editingFinanzId = null;
 function renderFinanzenTab(el, trip) {
   if (!trip) {
     el.innerHTML = `
-      <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
       <p class="hint">Noch keine Ferien angelegt.</p>
     `;
-    document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
     return;
   }
   trip.finanzen = trip.finanzen || [];
@@ -1432,7 +1530,6 @@ function renderFinanzenTab(el, trip) {
   });
 
   el.innerHTML = `
-    <button id="back-to-mehr" class="link-button"><i class="ti ti-arrow-left"></i> Zurück</button>
     <section class="panel">
       <h2><i class="ti ti-cash"></i> Finanzen - ${escapeHtml(trip.titel)}</h2>
       ${Object.keys(totals).length ? `<p class="hint-small">Total: ${Object.entries(totals).map(([w, sum]) => `${sum.toFixed(2)} ${escapeHtml(w)}`).join(" · ")}</p>` : ""}
@@ -1441,8 +1538,6 @@ function renderFinanzenTab(el, trip) {
     </section>
     <div id="finanzen-form-container"></div>
   `;
-
-  document.getElementById("back-to-mehr").onclick = () => { currentTab = "mehr"; render(); };
 
   const list = document.getElementById("finanzen-list");
   if (!sorted.length) {
@@ -1484,6 +1579,7 @@ function renderFinanzenTab(el, trip) {
     formContainer.appendChild(renderFinanzForm(trip, () => renderFinanzenTab(el, trip)));
   }
 }
+
 function renderFinanzForm(trip, onChange) {
   const isNew = editingFinanzId === "__neu__";
   const existing = isNew ? null : trip.finanzen.find((f) => f.id === editingFinanzId);
@@ -1539,7 +1635,6 @@ function renderFinanzForm(trip, onChange) {
 
   return form;
 }
-
 // ===========================================================
 // HILFSFUNKTIONEN
 // ===========================================================
