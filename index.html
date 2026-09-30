@@ -34,30 +34,20 @@
       <select id="trip-switcher" class="trip-switcher" title="Ferien wechseln"></select>
       <span id="sync-status"></span>
     </header>
-
     <div class="body-layout">
       <!-- Seitenleiste: nur ab PC-Breite sichtbar (siehe style.css), gleiche
            Bereiche wie die untere Tab-Leiste, nur als "Verwalten"-Navigation -->
-      <nav class="sidebar">
+      <nav class="sidebar" id="sidebar-nav">
         <p class="sidebar-title">Verwalten</p>
-        <button class="nav-tab active" data-tab="start"><i class="ti ti-home"></i><span>Start</span></button>
-        <button class="nav-tab" data-tab="ferien"><i class="ti ti-beach"></i><span>Ferien</span></button>
-        <button class="nav-tab" data-tab="packliste"><i class="ti ti-checkbox"></i><span>Packliste</span></button>
-        <button class="nav-tab" data-tab="todo"><i class="ti ti-list-check"></i><span>To-Do</span></button>
-        <button class="nav-tab" data-tab="mehr"><i class="ti ti-dots"></i><span>Mehr</span></button>
       </nav>
 
       <main id="tab-content"></main>
     </div>
 
-    <!-- Untere Tab-Leiste: nur bis Tablet-Breite sichtbar (siehe style.css) -->
-    <nav class="tab-bar">
-      <button class="nav-tab active" data-tab="start"><i class="ti ti-home"></i><span>Start</span></button>
-      <button class="nav-tab" data-tab="ferien"><i class="ti ti-beach"></i><span>Ferien</span></button>
-      <button class="nav-tab" data-tab="packliste"><i class="ti ti-checkbox"></i><span>Packliste</span></button>
-      <button class="nav-tab" data-tab="todo"><i class="ti ti-list-check"></i><span>To-Do</span></button>
-      <button class="nav-tab" data-tab="mehr"><i class="ti ti-dots"></i><span>Mehr</span></button>
-    </nav>
+    <!-- Untere Tab-Leiste: nur bis Tablet-Breite sichtbar (siehe style.css).
+         Inhalt wird per JS aus der (vom Nutzer sortierbaren) Kachel-Reihenfolge
+         aufgebaut, siehe renderNavBars() in app.js. -->
+    <nav class="tab-bar" id="tab-bar-nav"></nav>
   </div>
 
   <script src="js/config.js"></script>
