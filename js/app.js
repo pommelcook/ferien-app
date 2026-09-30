@@ -26,6 +26,10 @@ let editingReminderId = null;
 const weatherCache = {};
 // Drag&Drop-Status beim Verschieben von Listeneinträgen
 let dragState = null;
+// Aktuell angezeigter Tag im Register "Reisetag" (Tage relativ zum Abreisedatum,
+// gleiche Zählweise wie item.termin: 0 = Abreisetag). null = noch nicht
+// initialisiert, wird beim ersten Rendern auf "heute" gesetzt.
+let reisetagOffset = null;
 
 // ===========================================================
 // NAVIGATION (Kacheln) - vom Nutzer sortierbar, siehe Einstellungen
@@ -36,6 +40,7 @@ let dragState = null;
 const TAB_DEFS = {
   start: { icon: "ti-home", label: "Start" },
   ferien: { icon: "ti-beach", label: "Ferien" },
+  reisetag: { icon: "ti-calendar-time", label: "Reisetag" },
   packliste: { icon: "ti-checkbox", label: "Packliste" },
   todo: { icon: "ti-list-check", label: "To-Do" },
   artikel: { icon: "ti-list-details", label: "Artikel-DB" },
@@ -45,7 +50,7 @@ const TAB_DEFS = {
 };
 const FIXED_FIRST_TABS = ["start", "ferien"];
 const FIXED_LAST_TAB = "einstellungen";
-const DEFAULT_SORTABLE_TABS = ["packliste", "todo", "artikel", "programm", "finanzen", "merkmale"];
+const DEFAULT_SORTABLE_TABS = ["reisetag", "packliste", "todo", "artikel", "programm", "finanzen", "merkmale"];
 
 /** Liefert die aktuell sortierbaren Kacheln (ohne start/ferien/einstellungen),
  *  in der vom Nutzer gewählten Reihenfolge. Neue, dem Nutzer noch unbekannte
@@ -266,6 +271,7 @@ function render() {
   if (currentTab === "merkmale") return renderMerkmaleTab(el);
   if (currentTab === "programm") return renderProgrammTab(el, trip);
   if (currentTab === "finanzen") return renderFinanzenTab(el, trip);
+  if (currentTab === "reisetag") return renderReisetagTab(el, trip);
 
   if (!trip) {
     el.innerHTML = `<p class="hint">Noch keine Ferien angelegt.<br />Wechsle zum Tab "Ferien", um eine anzulegen.</p>`;
@@ -441,6 +447,172 @@ function formatTermin(t) {
   if (n === 0) return "Abreisetag";
   if (n > 0) return `+${n} Tag${n === 1 ? "" : "e"}`;
   return `${Math.abs(n)} Tag${Math.abs(n) === 1 ? "" : "e"} vorher`;
+}
+
+// ===========================================================
+// TAB: REISETAG (Tagesansicht: welche To-Dos/Artikel sind heute dran -
+// dieselben Item-Objekte wie Packliste/To-Do, daher automatisch
+// bidirektional synchron beim Abhaken)
+// ===========================================================
+
+/** "Tage relativ zum Abreisedatum" für heute, gleiche Zählweise wie
+ *  item.termin (0 = Abreisetag). Ohne hinterlegtes Von-Datum gibt es
+ *  keinen sinnvollen "heute"-Bezug, daher Fallback auf 0. */
+function computeTodayOffset(trip) {
+  if (!trip.von) return 0;
+  const today = new Date(new Date().toDateString());
+  const von = new Date(trip.von);
+  return Math.round((today - von) / 86400000);
+}
+
+function renderReisetagTab(el, trip) {
+  if (!trip) {
+    el.innerHTML = `<p class="hint">Noch keine Ferien angelegt.<br />Wechsle zum Tab "Ferien", um eine anzulegen.</p>`;
+    return;
+  }
+
+  if (reisetagOffset === null) reisetagOffset = computeTodayOffset(trip);
+
+  // Anzeige-Bereich: mindestens eine Woche vor Abreise bis Ende der Ferien,
+  // erweitert um alle Tage, an denen tatsächlich To-Dos fällig sind.
+  let minOffset = -7;
+  let maxOffset = 0;
+  trip.todo.forEach((i) => {
+    if (itemVisible(i, trip) && i.termin !== undefined && i.termin !== null && i.termin !== "") {
+      const n = Number(i.termin);
+      if (n < minOffset) minOffset = n;
+      if (n > maxOffset) maxOffset = n;
+    }
+  });
+  if (trip.von && trip.bis) {
+    const span = Math.round((new Date(trip.bis) - new Date(trip.von)) / 86400000);
+    if (span > maxOffset) maxOffset = span;
+  }
+  reisetagOffset = Math.max(minOffset, Math.min(maxOffset, reisetagOffset));
+
+  const onChange = () => renderReisetagTab(el, trip);
+  el.innerHTML = "";
+
+  // --- Navigation ---
+  const nav = document.createElement("section");
+  nav.className = "panel";
+  const navRow = document.createElement("div");
+  navRow.className = "panel-header-row";
+  const prevBtn = document.createElement("button");
+  prevBtn.type = "button";
+  prevBtn.className = "secondary";
+  prevBtn.innerHTML = `<i class="ti ti-chevron-left"></i>`;
+  prevBtn.disabled = reisetagOffset <= minOffset;
+  prevBtn.onclick = () => { reisetagOffset -= 1; onChange(); };
+  const title = document.createElement("h2");
+  title.style.margin = "0";
+  title.textContent = reisetagOffset === 0 ? "Abreisetag" : formatTermin(reisetagOffset);
+  const nextBtn = document.createElement("button");
+  nextBtn.type = "button";
+  nextBtn.className = "secondary";
+  nextBtn.innerHTML = `<i class="ti ti-chevron-right"></i>`;
+  nextBtn.disabled = reisetagOffset >= maxOffset;
+  nextBtn.onclick = () => { reisetagOffset += 1; onChange(); };
+  navRow.appendChild(prevBtn);
+  navRow.appendChild(title);
+  navRow.appendChild(nextBtn);
+  nav.appendChild(navRow);
+
+  if (trip.von) {
+    const d = new Date(trip.von);
+    d.setDate(d.getDate() + reisetagOffset);
+    const dateP = document.createElement("p");
+    dateP.className = "hint-small";
+    dateP.style.textAlign = "center";
+    dateP.textContent = d.toLocaleDateString("de-CH", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" });
+    nav.appendChild(dateP);
+  }
+
+  const todayOffset = computeTodayOffset(trip);
+  if (reisetagOffset !== todayOffset && todayOffset >= minOffset && todayOffset <= maxOffset) {
+    const todayBtn = document.createElement("button");
+    todayBtn.type = "button";
+    todayBtn.className = "link-button";
+    todayBtn.style.display = "block";
+    todayBtn.style.margin = "0 auto";
+    todayBtn.innerHTML = `<i class="ti ti-calendar-event"></i> Zu heute springen`;
+    todayBtn.onclick = () => { reisetagOffset = todayOffset; onChange(); };
+    nav.appendChild(todayBtn);
+  }
+  el.appendChild(nav);
+
+  // --- To-Dos für diesen Tag ---
+  const todoSection = document.createElement("section");
+  todoSection.className = "panel";
+  const todoHeading = document.createElement("h2");
+  todoHeading.textContent = "✅ To-Dos";
+  todoSection.appendChild(todoHeading);
+  const todosForDay = trip.todo.filter((i) => itemVisible(i, trip) && i.termin !== undefined && i.termin !== null && i.termin !== "" && Number(i.termin) === reisetagOffset);
+  if (!todosForDay.length) {
+    const hint = document.createElement("p");
+    hint.className = "hint-empty";
+    hint.textContent = "Keine To-Dos für diesen Tag.";
+    todoSection.appendChild(hint);
+  } else {
+    todosForDay.forEach((item) => todoSection.appendChild(reisetagItemRow(item, onChange)));
+  }
+  el.appendChild(todoSection);
+
+  // --- Packliste: kein eigenes Termin-Feld, daher am Abreisetag gesammelt ---
+  if (reisetagOffset === 0) {
+    const packSection = document.createElement("section");
+    packSection.className = "panel";
+    const packHeading = document.createElement("h2");
+    packHeading.textContent = "🎒 Packliste";
+    packSection.appendChild(packHeading);
+    const hint = document.createElement("p");
+    hint.className = "hint-small";
+    hint.textContent = "Packliste-Punkte haben kein eigenes Datum und werden daher hier am Abreisetag gesammelt angezeigt.";
+    packSection.appendChild(hint);
+    const openPack = trip.packliste.filter((i) => itemVisible(i, trip) && matchesFilter(i, "offen"));
+    if (!openPack.length) {
+      const empty = document.createElement("p");
+      empty.className = "hint-empty";
+      empty.textContent = "Alles gepackt!";
+      packSection.appendChild(empty);
+    } else {
+      openPack.forEach((item) => packSection.appendChild(reisetagItemRow(item, onChange)));
+    }
+    el.appendChild(packSection);
+  }
+}
+
+/** Leichte Zeilen-Darstellung fürs Reisetag-Register: greift direkt auf
+ *  dasselbe Item-Objekt wie Packliste/To-Do zu (keine Kopie), daher ist
+ *  das Abhaken hier automatisch bidirektional synchron. */
+function reisetagItemRow(item, onChange) {
+  const row = document.createElement("div");
+  row.className = "item-row" + (item.erledigt ? " done" : "") + (item.nichtRelevant ? " not-relevant" : "") + (item.prioritaet ? " priority" : "");
+
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = item.erledigt;
+  cb.addEventListener("change", () => {
+    item.erledigt = cb.checked;
+    if (item.erledigt) item.nichtRelevant = false;
+    saveChange();
+    onChange();
+  });
+  row.appendChild(cb);
+
+  if (item.prioritaet) {
+    const flag = document.createElement("i");
+    flag.className = "ti ti-flag-filled";
+    flag.style.color = "var(--amber-dark)";
+    row.appendChild(flag);
+  }
+
+  const span = document.createElement("span");
+  span.style.flex = "1";
+  span.textContent = item.text;
+  row.appendChild(span);
+
+  return row;
 }
 
 // ===========================================================
