@@ -6,7 +6,9 @@ let currentTripId = null;
 let currentTab = "start";
 // Pro Liste merken wir uns, ob erledigte Punkte gerade eingeblendet sind
 // (nur im Speicher, nicht gespeichert - beim Neuladen wieder eingeklappt).
-const showDone = { packliste: false, todo: false };
+// Pro Liste der aktive Filter: "offen" (Standard, ohne erledigt/nicht
+// relevant), "erledigt", "nichtRelevant" oder "alle".
+const filterMode = { packliste: "offen", todo: "offen" };
 // Wonach gruppiert wird: "kategorie" oder (nur beim To-Do) "termin"
 const groupBy = { packliste: "kategorie", todo: "kategorie" };
 // Sortierung innerhalb einer Gruppe: "manuell" (per Drag&Drop/Pfeile) oder "az"
@@ -111,6 +113,7 @@ async function main() {
   document.getElementById("app-screen").classList.remove("hidden");
 
   ensureMerkmaleDefs();
+  initScrollTopButton();
 
   const data = getData();
   if (!currentTripId && data.ferien.length > 0) {
@@ -168,6 +171,58 @@ function itemVisible(item, trip) {
   return item.nurWenn.some((k) => trip.merkmale && trip.merkmale[k]);
 }
 
+/** Prüft, ob ein Packliste-/To-Do-Item zum aktuell gewählten Status-Filter
+ *  passt. "offen" (Standardansicht) blendet sowohl erledigte als auch als
+ *  "nicht relevant" markierte Punkte aus. */
+function matchesFilter(item, filter) {
+  if (filter === "erledigt") return !!item.erledigt;
+  if (filter === "nichtRelevant") return !!item.nichtRelevant;
+  if (filter === "alle") return true;
+  return !item.erledigt && !item.nichtRelevant; // "offen"
+}
+
+// ===========================================================
+// MODAL (Popup) - z. B. für die Artikel-Bearbeitung, damit das
+// Formular optisch klar von der Liste dahinter abgesetzt ist.
+// ===========================================================
+function openModal(innerEl, onClose) {
+  closeModal();
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "app-modal-overlay";
+  const close = () => { closeModal(); if (onClose) onClose(); };
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+  const card = document.createElement("div");
+  card.className = "modal-card";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "modal-close-btn";
+  closeBtn.innerHTML = `<i class="ti ti-x"></i>`;
+  closeBtn.onclick = close;
+  card.appendChild(closeBtn);
+  card.appendChild(innerEl);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+}
+function closeModal() {
+  const existing = document.getElementById("app-modal-overlay");
+  if (existing) existing.remove();
+}
+
+/** "Nach oben"-Button: erscheint sobald die Seite gescrollt ist (funktioniert
+ *  auf allen Tabs, da die ganze Seite scrollt, nicht nur #tab-content). */
+function initScrollTopButton() {
+  const btn = document.getElementById("scroll-top-btn");
+  if (!btn) return;
+  const update = () => {
+    if (window.scrollY > 400) btn.classList.add("visible");
+    else btn.classList.remove("visible");
+  };
+  window.addEventListener("scroll", update, { passive: true });
+  btn.onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
+  update();
+}
+
 // ===========================================================
 // RENDER-DISPATCH
 // ===========================================================
@@ -205,10 +260,10 @@ function renderStartTab(el, trip) {
     return;
   }
 
-  const packOpen = trip.packliste.filter((i) => itemVisible(i, trip) && !i.erledigt).length;
-  const packTotal = trip.packliste.filter((i) => itemVisible(i, trip)).length;
-  const todoOpen = trip.todo.filter((i) => itemVisible(i, trip) && !i.erledigt).length;
-  const todoTotal = trip.todo.filter((i) => itemVisible(i, trip)).length;
+  const packOpen = trip.packliste.filter((i) => itemVisible(i, trip) && !i.erledigt && !i.nichtRelevant).length;
+  const packTotal = trip.packliste.filter((i) => itemVisible(i, trip) && !i.nichtRelevant).length;
+  const todoOpen = trip.todo.filter((i) => itemVisible(i, trip) && !i.erledigt && !i.nichtRelevant).length;
+  const todoTotal = trip.todo.filter((i) => itemVisible(i, trip) && !i.nichtRelevant).length;
   const packPct = packTotal ? Math.round(((packTotal - packOpen) / packTotal) * 100) : 0;
   const todoPct = todoTotal ? Math.round(((todoTotal - todoOpen) / todoTotal) * 100) : 0;
 
@@ -221,7 +276,7 @@ function renderStartTab(el, trip) {
   }
 
   const naechsteToDos = trip.todo
-    .filter((i) => itemVisible(i, trip) && !i.erledigt && i.termin !== undefined && i.termin !== null && i.termin !== "")
+    .filter((i) => itemVisible(i, trip) && !i.erledigt && !i.nichtRelevant && i.termin !== undefined && i.termin !== null && i.termin !== "")
     .sort((a, b) => Number(a.termin) - Number(b.termin))
     .slice(0, 3);
 
@@ -745,16 +800,25 @@ function ensureArtikelDatenbank() {
 // TAB: PACKLISTE / TO-DO (kategorisierte Liste mit Filtern)
 // ===========================================================
 
-function renderListTab(el, trip, key, icon, placeholder) { seedListFromKatalogIfEmpty(trip, key);
+function renderListTab(el, trip, key, icon, placeholder) {
+  seedListFromKatalogIfEmpty(trip, key);
   const items = trip[key];
-  const relevant = items.filter((i) => itemVisible(i, trip));
+  const relevant = items.filter((i) => itemVisible(i, trip) && matchesFilter(i, filterMode[key]));
   const isTodo = key === "todo";
   const mode = groupBy[key];
 
   const groups = groupItems(relevant, mode, sortMode[key]);
+  const collapsePrefix = key + ":" + mode + ":";
+  const allCollapsed = groups.length > 0 && groups.every((g) => collapsed.has(collapsePrefix + g.name));
 
   el.innerHTML = `
     <div class="list-toolbar">
+      <select id="filter-select" title="Status-Filter">
+        <option value="offen"${filterMode[key] === "offen" ? " selected" : ""}>Offen</option>
+        <option value="erledigt"${filterMode[key] === "erledigt" ? " selected" : ""}>Erledigt</option>
+        <option value="nichtRelevant"${filterMode[key] === "nichtRelevant" ? " selected" : ""}>Nicht relevant</option>
+        <option value="alle"${filterMode[key] === "alle" ? " selected" : ""}>Alle</option>
+      </select>
       ${isTodo ? `
       <button id="toggle-group" class="link-button">
         <i class="ti ti-arrows-sort"></i>
@@ -764,9 +828,9 @@ function renderListTab(el, trip, key, icon, placeholder) { seedListFromKatalogIf
         <i class="ti ${sortMode[key] === "az" ? "ti-sort-ascending-letters" : "ti-grip-vertical"}"></i>
         ${sortMode[key] === "az" ? "A-Z" : "Manuell"}
       </button>
-      <button id="toggle-done" class="link-button">
-        <i class="ti ${showDone[key] ? "ti-eye-off" : "ti-eye"}"></i>
-        Erledigte ${showDone[key] ? "ausblenden" : "anzeigen"}
+      <button id="toggle-collapse-all" class="link-button">
+        <i class="ti ${allCollapsed ? "ti-chevrons-down" : "ti-chevrons-up"}"></i>
+        Alle ${allCollapsed ? "ausklappen" : "einklappen"}
       </button>
     </div>
     <div id="cat-container"></div>
@@ -777,6 +841,12 @@ function renderListTab(el, trip, key, icon, placeholder) { seedListFromKatalogIf
       <button type="submit"><i class="ti ti-plus"></i></button>
     </form>
   `;
+
+  document.getElementById("filter-select").onchange = (e) => {
+    filterMode[key] = e.target.value;
+    renderListTab(el, trip, key, icon, placeholder);
+  };
+
   if (isTodo) {
     document.getElementById("toggle-group").onclick = () => {
       groupBy[key] = mode === "termin" ? "kategorie" : "termin";
@@ -789,8 +859,9 @@ function renderListTab(el, trip, key, icon, placeholder) { seedListFromKatalogIf
     renderListTab(el, trip, key, icon, placeholder);
   };
 
-  document.getElementById("toggle-done").onclick = () => {
-    showDone[key] = !showDone[key];
+  document.getElementById("toggle-collapse-all").onclick = () => {
+    if (allCollapsed) groups.forEach((g) => collapsed.delete(collapsePrefix + g.name));
+    else groups.forEach((g) => collapsed.add(collapsePrefix + g.name));
     renderListTab(el, trip, key, icon, placeholder);
   };
 
@@ -876,11 +947,10 @@ function groupItems(items, mode, sort) {
   const cats = categories.length ? categories : ["Allgemein"];
   return cats.map((c) => ({ name: c, items: sortGroup(items.filter((i) => (i.kategorie || "Allgemein") === c)) }));
 }
+
 function renderCategory(trip, listKey, groupName, groupItemsList, showTermin, onChange) {
   const collapseKey = listKey + ":" + groupBy[listKey] + ":" + groupName;
   const isCollapsed = collapsed.has(collapseKey);
-  const open = groupItemsList.filter((i) => !i.erledigt);
-  const done = groupItemsList.filter((i) => i.erledigt);
   const manualSort = sortMode[listKey] === "manuell";
 
   const wrap = document.createElement("div");
@@ -899,16 +969,10 @@ function renderCategory(trip, listKey, groupName, groupItemsList, showTermin, on
   if (!isCollapsed) {
     const list = document.createElement("div");
     list.className = "category-items";
-    open.forEach((item, idx) => {
-      list.appendChild(itemRow(trip, listKey, item, showTermin, manualSort, open, idx, onChange));
+    groupItemsList.forEach((item, idx) => {
+      list.appendChild(itemRow(trip, listKey, item, showTermin, manualSort, groupItemsList, idx, onChange));
       if (editingReminderId === item.id) list.appendChild(reminderForm(item, onChange));
     });
-    if (showDone[listKey]) {
-      done.forEach((item) => {
-        list.appendChild(itemRow(trip, listKey, item, showTermin, false, done, 0, onChange));
-        if (editingReminderId === item.id) list.appendChild(reminderForm(item, onChange));
-      });
-    }
     wrap.appendChild(list);
   }
 
@@ -921,7 +985,7 @@ function reassignSort(list) {
 
 function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, onChange) {
   const row = document.createElement("div");
-  row.className = "item-row" + (item.erledigt ? " done" : "");
+  row.className = "item-row" + (item.erledigt ? " done" : "") + (item.nichtRelevant ? " not-relevant" : "");
 
   if (manualSort) {
     const handle = document.createElement("i");
@@ -975,11 +1039,13 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     moveButtons.appendChild(downBtn);
     row.appendChild(moveButtons);
   }
+
   const cb = document.createElement("input");
   cb.type = "checkbox";
   cb.checked = item.erledigt;
   cb.addEventListener("change", () => {
     item.erledigt = cb.checked;
+    if (cb.checked) item.nichtRelevant = false;
     saveChange();
     onChange();
   });
@@ -1008,6 +1074,19 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     onChange();
   };
   row.appendChild(bell);
+
+  const nrBtn = document.createElement("button");
+  nrBtn.type = "button";
+  nrBtn.className = "icon-btn" + (item.nichtRelevant ? " active" : "");
+  nrBtn.innerHTML = `<i class="ti ti-circle-minus"></i>`;
+  nrBtn.title = item.nichtRelevant ? "Als relevant markieren" : "Als nicht relevant markieren";
+  nrBtn.onclick = () => {
+    item.nichtRelevant = !item.nichtRelevant;
+    if (item.nichtRelevant) item.erledigt = false;
+    saveChange();
+    onChange();
+  };
+  row.appendChild(nrBtn);
 
   const editBtn = document.createElement("button");
   editBtn.type = "button";
@@ -1209,6 +1288,7 @@ function renderEinstellungenTab(el) {
 let editingArtikelId = null; // null | "__neu__" | id
 
 function renderArtikelTab(el) {
+  closeModal();
   const katalog = ensureArtikelDatenbank();
   const trip = getCurrentTrip();
 
@@ -1219,7 +1299,6 @@ function renderArtikelTab(el) {
       <div id="artikel-list"></div>
       <button id="new-artikel-button" class="secondary"><i class="ti ti-plus"></i> Neuer Artikel</button>
     </section>
-    <div id="artikel-form-container"></div>
   `;
 
   const list = document.getElementById("artikel-list");
@@ -1279,13 +1358,8 @@ function renderArtikelTab(el) {
 
   document.getElementById("new-artikel-button").onclick = () => { editingArtikelId = "__neu__"; renderArtikelTab(el); };
 
-  const formContainer = document.getElementById("artikel-form-container");
   if (editingArtikelId) {
-    formContainer.appendChild(renderArtikelForm(katalog, () => renderArtikelTab(el)));
-    // Formular kann bei ~200 Katalog-Artikeln weit unterhalb der Liste
-    // liegen - ohne dieses Scrollen wirkt ein Klick auf "Bearbeiten"
-    // wie "nichts passiert".
-    formContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+    openModal(renderArtikelForm(katalog, () => renderArtikelTab(el)), () => { editingArtikelId = null; });
   }
 }
 
@@ -1295,7 +1369,7 @@ function renderArtikelForm(katalog, onChange) {
   const a = existing || { text: "", kategorie: "", merkmale: [], bemerkung: "" };
 
   const form = document.createElement("form");
-  form.className = "field-form panel";
+  form.className = "field-form";
   form.innerHTML = `
     <label>Artikel<input type="text" name="text" value="${escapeHtml(a.text)}" required /></label>
     <label>Kategorie<input type="text" name="kategorie" value="${escapeHtml(a.kategorie)}" placeholder="z. B. Kleider" /></label>
@@ -1368,6 +1442,8 @@ function renderArtikelForm(katalog, onChange) {
 
   return form;
 }
+
+
 // ===========================================================
 // VERWALTUNG: MERKMALE (bislang fest im Code, jetzt bearbeitbar)
 // ===========================================================
