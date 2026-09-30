@@ -78,10 +78,10 @@ async function loadData() {
   }
 
   if (!res.ok) {
-    throw new Error(`Graph-Fehler beim Laden: ${res.status}`);
+    throw new Error(`Graph-Fehler beim Laden: ${await graphErrorDetail(res)}`);
   }
 
-    return await res.json();
+  return await res.json();
 }
 
 /** Daten als JSON in OneDrive speichern (überschreibt die Datei). */
@@ -92,7 +92,24 @@ async function saveData(data) {
     body: JSON.stringify(data, null, 2),
   });
   if (!res.ok) {
-    throw new Error(`Graph-Fehler beim Speichern: ${res.status}`);
+    throw new Error(`Graph-Fehler beim Speichern: ${await graphErrorDetail(res)}`);
   }
   return await res.json();
+}
+
+/** Baut aus einer fehlgeschlagenen Graph-Antwort eine möglichst aussagekräftige
+ *  Fehlermeldung (HTTP-Status + Graph-Fehlercode/-text + verwendeter Pfad),
+ *  damit sich Probleme (z. B. falscher Ordnerpfad) ohne Entwickler-Tools
+ *  diagnostizieren lassen. */
+async function graphErrorDetail(res) {
+  let detail = "";
+  try {
+    const body = await res.json();
+    if (body && body.error) {
+      detail = ` - ${body.error.code}: ${body.error.message}`;
+    }
+  } catch (e) {
+    // Antwort war kein JSON - ignorieren, Status reicht dann als Info.
+  }
+  return `${res.status}${detail} | Pfad: /${DATA_PATH}`;
 }
