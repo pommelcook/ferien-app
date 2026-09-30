@@ -57,7 +57,10 @@ async function initStore() {
       }
     } catch (e) {
       console.warn("Konnte OneDrive beim Start nicht erreichen, nutze lokale Daten.", e);
+      updateSyncStatus("⚠ OneDrive-Fehler: " + (e && e.message ? e.message : e));
     }
+  } else {
+    updateSyncStatus("Offline (kein Internet beim Start)");
   }
 
   window.addEventListener("online", trySync);
