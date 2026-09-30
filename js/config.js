@@ -25,29 +25,55 @@ const APP_CONFIG = {
 // ===========================================================
 // VERSION (wird im Tab "Mehr" angezeigt)
 // ===========================================================
-const APP_VERSION = "0.7.0";
+const APP_VERSION = "0.8.0";
 const APP_BUILD_DATE = "2026-09-30";
 
 // ===========================================================
-// MERKMALE (wie im Excel-Master, hier als überschaubare Auswahl)
+// MERKMALE (1:1 nach dem Register "⚙️ Merkmale" im Excel-Master,
+// gruppiert nach den dortigen Überbegriffen)
 // ===========================================================
 // Jede Ferien hat ein "merkmale"-Objekt mit diesen Schlüsseln (true/false).
 // Ein Artikel/To-Do kann optional "nurWenn: [Schlüssel, ...]" tragen -
 // dann wird er nur angezeigt, wenn MINDESTENS eines der dort genannten
 // Merkmale für die aktuelle Ferien aktiv ist (wie die dynamische
 // Packliste im Excel-Master). Kein "nurWenn" -> immer sichtbar.
+// Das Feld "gruppe" dient nur der übersichtlichen Anzeige (Überbegriffe
+// wie im Master, z. B. "🚗 Transport") und hat keine funktionale Wirkung.
 const MERKMALE_DEFS = [
-  { key: "ausland", label: "Ausland", icon: "ti-world" },
-  { key: "auto", label: "Auto", icon: "ti-car" },
-  { key: "flug", label: "Flug", icon: "ti-plane" },
-  { key: "sommer", label: "Sommer", icon: "ti-sun" },
-  { key: "winter", label: "Winter", icon: "ti-snowflake" },
-  { key: "wasser", label: "Baden/Wasser", icon: "ti-swimming" },
-  { key: "wandern", label: "Wandern", icon: "ti-mountain" },
-  { key: "baby", label: "Baby/Kleinkind", icon: "ti-baby-carriage" },
-  { key: "kinder", label: "Mit Kindern", icon: "ti-users" },
-  { key: "zelten", label: "Zelten", icon: "ti-tent" },
-  { key: "haustier", label: "Haustier", icon: "ti-paw" },
+  // 📅 Dauer
+  { key: "weekend", label: "Weekend", icon: "ti-calendar-event", gruppe: "📅 Dauer" },
+  { key: "woche", label: "Woche", icon: "ti-calendar", gruppe: "📅 Dauer" },
+  { key: "lager", label: "Lager", icon: "ti-tent" , gruppe: "📅 Dauer" },
+  // 🌍 Land
+  { key: "ausland", label: "Ausland", icon: "ti-world", gruppe: "🌍 Land" },
+  // 🥾 Ausflug
+  { key: "tageswanderung", label: "Tageswanderung", icon: "ti-walk", gruppe: "🥾 Ausflug" },
+  { key: "mehrtageswanderung", label: "Mehrtageswanderung", icon: "ti-backpack", gruppe: "🥾 Ausflug" },
+  { key: "picknickmitkindern", label: "Picknick mit Kindern", icon: "ti-basket", gruppe: "🥾 Ausflug" },
+  { key: "picknickohnekinder", label: "Picknick ohne Kinder", icon: "ti-basket", gruppe: "🥾 Ausflug" },
+  // 🏠 Unterkunft
+  { key: "fewohotel", label: "FeWo/Hotel", icon: "ti-home", gruppe: "🏠 Unterkunft" },
+  { key: "hotel", label: "Hotel", icon: "ti-building", gruppe: "🏠 Unterkunft" },
+  { key: "hausboot", label: "Hausboot", icon: "ti-anchor", gruppe: "🏠 Unterkunft" },
+  { key: "zelten", label: "Zelten", icon: "ti-tent", gruppe: "🏠 Unterkunft" },
+  { key: "ohneuebernachtung", label: "ohne Übernachtung", icon: "ti-moon-off", gruppe: "🏠 Unterkunft" },
+  // 🚗 Transport
+  { key: "auto", label: "Auto", icon: "ti-car", gruppe: "🚗 Transport" },
+  { key: "vwbus", label: "VW-Bus", icon: "ti-bus", gruppe: "🚗 Transport" },
+  { key: "flugzeug", label: "Flugzeug", icon: "ti-plane", gruppe: "🚗 Transport" },
+  { key: "zugoev", label: "Zug / ÖV", icon: "ti-train", gruppe: "🚗 Transport" },
+  // ☀️ Jahreszeit
+  { key: "sommer", label: "Sommer", icon: "ti-sun", gruppe: "☀️ Jahreszeit" },
+  { key: "winter", label: "Winter", icon: "ti-snowflake", gruppe: "☀️ Jahreszeit" },
+  { key: "wintersport", label: "Wintersport", icon: "ti-ski-jumping", gruppe: "☀️ Jahreszeit" },
+  // 👪 Mitreisende
+  { key: "mithund", label: "Mit Hund", icon: "ti-paw", gruppe: "👪 Mitreisende" },
+  { key: "mitkindern", label: "Mit Kindern", icon: "ti-users", gruppe: "👪 Mitreisende" },
+  { key: "mitbabykleinkind", label: "Baby/Kleinkind", icon: "ti-baby-carriage", gruppe: "👪 Mitreisende" },
+  // 📍 Ort/Aktivität
+  { key: "strand", label: "Strand", icon: "ti-beach", gruppe: "📍 Ort/Aktivität" },
+  { key: "wandern", label: "Wandern", icon: "ti-mountain", gruppe: "📍 Ort/Aktivität" },
+  { key: "stadt", label: "Stadt", icon: "ti-building-skyscraper", gruppe: "📍 Ort/Aktivität" },
 ];
 
 // ===========================================================
@@ -338,7 +364,7 @@ function categoryIcon(name) {
 const MSAL_CONFIG = {
   auth: {
     clientId: APP_CONFIG.clientId,
-        // WICHTIG: "consumers" statt der eigenen Tenant-ID - benz.michael@bluewin.ch
+    // WICHTIG: "consumers" statt der eigenen Tenant-ID - benz.michael@bluewin.ch
     // ist ein privates Microsoft-Konto (kein Geschäfts-/Schul-Konto). Mit der
     // eigenen (leeren) "Default Directory"-Tenant-ID wurde zwar der Login
     // erfolgreich abgeschlossen, aber Microsoft Graph hat "/me/drive" dann
@@ -347,6 +373,10 @@ const MSAL_CONFIG = {
     // Mit "consumers" wird der Token im Kontext des echten privaten
     // Microsoft-Kontos ausgestellt, wo das eigentliche OneDrive liegt.
     authority: "https://login.microsoftonline.com/consumers",
+    // Muss EXAKT der Adresse entsprechen, die in Azure als
+    // "Umleitungs-URI" hinterlegt ist. Solange die App noch nicht
+    // gehostet ist, funktioniert der Login-Redirect noch nicht -
+    // das wird nachgezogen, sobald eine echte Webadresse existiert.
     redirectUri: window.location.origin + window.location.pathname,
   },
   cache: {
