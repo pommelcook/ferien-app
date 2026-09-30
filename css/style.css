@@ -94,6 +94,15 @@ header {
 }
 .header-text p { margin: 0; font-size: 10px; color: var(--grey); }
 .header-text h1 { margin: 0; font-size: 15px; font-weight: 500; }
+.header-date { font-size: 9px !important; white-space: nowrap; }
+.header-version {
+  font-size: 9px;
+  color: var(--grey);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
 #sync-status { margin-left: auto; font-size: 10px; color: var(--grey); }
 
 main#tab-content {
@@ -390,6 +399,12 @@ main#tab-content {
   border-bottom: 1px solid #f0f0f0;
 }
 .item-row:last-child { border-bottom: none; }
+.item-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
 .item-row input[type="checkbox"] {
   width: 15px;
   height: 15px;
@@ -400,8 +415,24 @@ main#tab-content {
 .item-row.done span { color: var(--grey); text-decoration: line-through; font-size: 11px; }
 .item-row.not-relevant span { color: var(--grey); font-style: italic; }
 .item-row.not-relevant { opacity: 0.65; }
+.item-row.priority { background: var(--amber-light); border-left: 3px solid var(--amber-dark); padding-left: 5px; }
+[data-theme="dark"] .item-row.priority { background: #3a2e12; }
 .priority-btn { font-size: 15px; }
 .priority-btn.active { color: var(--amber-dark); }
+.reisetag-jump-icon { font-size: 14px; margin-right: 4px; cursor: pointer; color: var(--grey); }
+.reisetag-jump-icon:hover { color: var(--green); }
+.reisetag-kategorie-badge { color: var(--grey); font-style: italic; }
+.manual-entry-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--amber-dark);
+  border: 1px solid var(--amber-dark);
+  border-radius: 6px;
+  padding: 0 4px;
+  margin-left: 6px;
+}
 
 .add-form {
   display: flex;
@@ -764,6 +795,19 @@ main#tab-content {
   background: #f5f5f5;
   font-weight: 600;
   color: var(--green);
+}
+.artikel-matrix .matrix-row-on-packliste td:not(.matrix-actions-col) { color: var(--grey); }
+.artikel-matrix .matrix-row-on-packliste .matrix-artikel-col { color: var(--grey); }
+.artikel-matrix .matrix-bemerkung-col {
+  text-align: left;
+  white-space: normal;
+  max-width: 220px;
+  font-size: 11px;
+  color: var(--grey);
+  display: none;
+}
+@media (min-width: 900px) {
+  .artikel-matrix .matrix-bemerkung-col { display: table-cell; }
 }
 [data-theme="dark"] .artikel-matrix thead th { background: #23262b; }
 [data-theme="dark"] .artikel-matrix .matrix-artikel-col { background: #1a1d21; }
