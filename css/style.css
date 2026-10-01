@@ -168,7 +168,8 @@ main#tab-content {
 .unterkunft-card .u-adresse { font-size: 10px; color: var(--grey); margin: 0; }
 
 .field-form { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-.field-form label { font-size: 11px; color: var(--grey); display: flex; flex-direction: column; gap: 2px; }
+.field-form label { font-size: 12px; font-weight: 700; color: var(--grey); display: flex; flex-direction: column; gap: 2px; }
+.field-form label > span { display: inline-flex; align-items: center; gap: 4px; }
 .field-form input, .field-form textarea {
   padding: 7px 8px;
   border-radius: 8px;
@@ -197,7 +198,8 @@ main#tab-content {
   margin-top: 2px;
 }
 .field-form details.form-section-box summary {
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 700;
   color: var(--grey);
   cursor: pointer;
   display: flex;
