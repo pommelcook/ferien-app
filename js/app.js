@@ -79,11 +79,15 @@ const TAB_DEFS = {
   artikel: { icon: "ti-list-details", label: "Artikel-DB" },
   programm: { icon: "ti-calendar-event", label: "Programm" },
   finanzen: { icon: "ti-cash", label: "Finanzen" },
+  stromladen: { icon: "ti-plug", label: "Stromladen" },
   merkmale: { icon: "ti-tags", label: "Merkmale" },
+  ratgeber: { icon: "ti-book-2", label: "Ratgeber" },
+  rueckblick: { icon: "ti-camera", label: "Rückblick" },
+  anleitung: { icon: "ti-help-circle", label: "Anleitung" },
 };
 const FIXED_FIRST_TABS = ["start", "ferien"];
 const FIXED_LAST_TAB = "einstellungen";
-const DEFAULT_SORTABLE_TABS = ["reisetag", "packliste", "todo", "artikel", "programm", "finanzen", "merkmale"];
+const DEFAULT_SORTABLE_TABS = ["reisetag", "packliste", "todo", "artikel", "programm", "finanzen", "stromladen", "merkmale", "ratgeber", "rueckblick", "anleitung"];
 
 /** Liefert die aktuell sortierbaren Kacheln (ohne start/ferien/einstellungen),
  *  in der vom Nutzer gewählten Reihenfolge. Neue, dem Nutzer noch unbekannte
@@ -387,6 +391,10 @@ function render() {
   if (currentTab === "programm") return renderProgrammTab(el, trip);
   if (currentTab === "finanzen") return renderFinanzenTab(el, trip);
   if (currentTab === "reisetag") return renderReisetagTab(el, trip);
+  if (currentTab === "stromladen") return renderStromladenTab(el, trip);
+  if (currentTab === "ratgeber") return renderRatgeberTab(el);
+  if (currentTab === "anleitung") return renderAnleitungTab(el);
+  if (currentTab === "rueckblick") return renderRueckblickTab(el, trip);
 
   if (!trip) {
     el.innerHTML = `<p class="hint">Noch keine Ferien angelegt.<br />Wechsle zum Tab "Ferien", um eine anzulegen.</p>`;
@@ -3549,6 +3557,509 @@ function renderFinanzForm(trip, onChange) {
   }
 
   return form;
+}
+
+// ===========================================================
+// TAB: STROMLADEN (Ladeprotokoll E-Auto pro Ferien, 1:1 nach dem
+// Excel-Register "🔌 Stromladen" - Grundlage für die Abrechnung)
+// ===========================================================
+let editingLadungId = null;
+
+function ensureStromladen(trip) {
+  trip.stromladen = trip.stromladen || {
+    waehrung: "CHF",
+    strompreis: 0.3,
+    batteriekapazitaet: 19.7,
+    ladeverlustProzent: 12,
+    log: [],
+  };
+  trip.stromladen.log = trip.stromladen.log || [];
+  return trip.stromladen;
+}
+
+/** Berechnet die abgeleiteten Werte einer Ladung: kWh, die tatsächlich im
+ *  Akku ankommen (aus Start-/Ende-%), kWh ab Steckdose (inkl. Ladeverlust -
+ *  das misst der Stromzähler des Vermieters) und die daraus resultierenden
+ *  Kosten. */
+function berechneLadung(eintrag, einstellungen) {
+  const start = Number(eintrag.startProzent);
+  const ende = Number(eintrag.endeProzent);
+  if (!Number.isFinite(start) || !Number.isFinite(ende) || ende <= start) {
+    return { kwhAkku: 0, kwhSteckdose: 0, kosten: 0 };
+  }
+  const kwhAkku = ((ende - start) / 100) * Number(einstellungen.batteriekapazitaet || 0);
+  const verlust = Number(einstellungen.ladeverlustProzent || 0) / 100;
+  const kwhSteckdose = verlust < 1 ? kwhAkku / (1 - verlust) : kwhAkku;
+  const kosten = kwhSteckdose * Number(einstellungen.strompreis || 0);
+  return { kwhAkku, kwhSteckdose, kosten };
+}
+
+function renderStromladenTab(el, trip) {
+  if (!trip) {
+    el.innerHTML = `<p class="hint">Noch keine Ferien angelegt.</p>`;
+    return;
+  }
+  const s = ensureStromladen(trip);
+  const onChange = () => renderStromladenTab(el, trip);
+
+  let totalAkku = 0, totalSteckdose = 0, totalKosten = 0, totalBezahlt = 0;
+  s.log.forEach((eintrag) => {
+    const b = berechneLadung(eintrag, s);
+    totalAkku += b.kwhAkku;
+    totalSteckdose += b.kwhSteckdose;
+    totalKosten += b.kosten;
+    if (eintrag.bezahlt) totalBezahlt += b.kosten;
+  });
+  const offen = totalKosten - totalBezahlt;
+
+  el.innerHTML = `
+    <section class="panel">
+      <h2><i class="ti ti-plug"></i> Stromladen - ${escapeHtml(trip.titel)}</h2>
+      <p class="hint-small">Ladeprotokoll fürs Aufladen in der Unterkunft oder an Ladestationen - Grundlage für die Abrechnung.</p>
+    </section>
+    <div class="dashboard-grid">
+      <section class="panel">
+        <p class="hint-small">Total geladen (Akku)</p>
+        <p class="dashboard-number" style="font-size:18px">${totalAkku.toFixed(1)} kWh</p>
+        <p class="hint-small">Ab Steckdose: ${totalSteckdose.toFixed(1)} kWh</p>
+      </section>
+      <section class="panel">
+        <p class="hint-small">Zu bezahlen</p>
+        <p class="dashboard-number" style="font-size:18px">${totalKosten.toFixed(2)} ${escapeHtml(s.waehrung)}</p>
+        <p class="hint-small">offen: ${offen.toFixed(2)} ${escapeHtml(s.waehrung)}</p>
+      </section>
+    </div>
+  `;
+
+  const settingsSection = document.createElement("section");
+  settingsSection.className = "panel";
+  const settingsResult = collapsibleHeader("stromladen:einstellungen", "<i class=\"ti ti-settings\"></i> Einstellungen", onChange);
+  settingsSection.appendChild(settingsResult.header);
+  if (!settingsResult.isCollapsed) {
+    const form = document.createElement("form");
+    form.className = "field-form";
+    form.innerHTML = `
+      <div class="field-row">
+        <label>Währung<input type="text" name="waehrung" value="${escapeHtml(s.waehrung)}" style="max-width:70px" /></label>
+        <label>Strompreis (/kWh)<input type="number" step="0.01" name="strompreis" value="${escapeHtml(String(s.strompreis))}" /></label>
+      </div>
+      <div class="field-row">
+        <label>Batteriekapazität (kWh)<input type="number" step="0.1" name="batteriekapazitaet" value="${escapeHtml(String(s.batteriekapazitaet))}" /></label>
+        <label>Ladeverlust (%)<input type="number" step="1" name="ladeverlustProzent" value="${escapeHtml(String(s.ladeverlustProzent))}" /></label>
+      </div>
+      <div class="form-actions"><button type="submit"><i class="ti ti-check"></i> Speichern</button></div>
+    `;
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      s.waehrung = fd.get("waehrung").trim() || "CHF";
+      s.strompreis = Number(fd.get("strompreis")) || 0;
+      s.batteriekapazitaet = Number(fd.get("batteriekapazitaet")) || 0;
+      s.ladeverlustProzent = Number(fd.get("ladeverlustProzent")) || 0;
+      saveChange();
+      onChange();
+    });
+    settingsSection.appendChild(form);
+  }
+  el.appendChild(settingsSection);
+
+  const logSection = document.createElement("section");
+  logSection.className = "panel";
+  const logResult = collapsibleHeader("stromladen:log", `Ladungen (${s.log.length})`, onChange);
+  logSection.appendChild(logResult.header);
+  const listDiv = document.createElement("div");
+  if (!logResult.isCollapsed) logSection.appendChild(listDiv);
+  const newBtn = document.createElement("button");
+  newBtn.className = "secondary";
+  newBtn.innerHTML = `<i class="ti ti-plus"></i> Neue Ladung`;
+  logSection.appendChild(newBtn);
+  el.appendChild(logSection);
+
+  const formContainer = document.createElement("div");
+  el.appendChild(formContainer);
+
+  if (!logResult.isCollapsed) {
+    if (!s.log.length) {
+      listDiv.innerHTML = `<p class="hint-empty">Noch keine Ladung erfasst.</p>`;
+    }
+    [...s.log].sort((a, b) => (a.datum || "").localeCompare(b.datum || "")).forEach((eintrag) => {
+      const b = berechneLadung(eintrag, s);
+      const row = document.createElement("div");
+      row.className = "item-row" + (eintrag.bezahlt ? " item-row-on-packliste" : "");
+      row.innerHTML = `
+        <span style="flex:1">
+          ${eintrag.datum ? `<span class="termin-badge">${formatDate(eintrag.datum)}</span> ` : ""}<strong>${escapeHtml(eintrag.ort || "Ladung")}</strong>
+          <br /><span class="hint-small" style="margin:0">${eintrag.startProzent ?? "?"}% → ${eintrag.endeProzent ?? "?"}% · ${b.kwhAkku.toFixed(1)} kWh Akku · ${b.kwhSteckdose.toFixed(1)} kWh Steckdose · ${b.kosten.toFixed(2)} ${escapeHtml(s.waehrung)}</span>
+          ${eintrag.bezahlt ? ` <span class="on-packliste-badge"><i class="ti ti-check"></i> bezahlt</span>` : ""}
+          ${eintrag.bemerkung ? `<br /><span class="hint-small" style="margin:0">${escapeHtml(eintrag.bemerkung)}</span>` : ""}
+        </span>
+      `;
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "icon-btn";
+      editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
+      editBtn.onclick = () => { editingLadungId = eintrag.id; renderStromladenFormInto(formContainer, trip, s, onChange); formContainer.scrollIntoView({ behavior: "smooth" }); };
+      row.appendChild(editBtn);
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "icon-btn danger";
+      delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+      delBtn.onclick = () => {
+        if (!confirm("Diese Ladung wirklich löschen?")) return;
+        s.log = s.log.filter((x) => x.id !== eintrag.id);
+        saveChange();
+        onChange();
+      };
+      row.appendChild(delBtn);
+      listDiv.appendChild(row);
+    });
+  }
+
+  newBtn.onclick = () => { editingLadungId = "__neu__"; renderStromladenFormInto(formContainer, trip, s, onChange); formContainer.scrollIntoView({ behavior: "smooth" }); };
+  if (editingLadungId) renderStromladenFormInto(formContainer, trip, s, onChange);
+}
+
+function renderStromladenFormInto(container, trip, s, onChange) {
+  const isNew = editingLadungId === "__neu__";
+  const existing = isNew ? null : s.log.find((e) => e.id === editingLadungId);
+  const eintrag = existing || { datum: "", ort: "", startProzent: "", endeProzent: "", bezahlt: false, bemerkung: "" };
+
+  const form = document.createElement("form");
+  form.className = "field-form panel";
+  form.innerHTML = `
+    <div class="field-row">
+      <label>Datum<input type="date" name="datum" value="${escapeHtml(eintrag.datum)}" /></label>
+      <label>Ort / Ladestation<input type="text" name="ort" value="${escapeHtml(eintrag.ort)}" /></label>
+    </div>
+    <div class="field-row">
+      <label>Start %<input type="number" step="1" min="0" max="100" name="startProzent" value="${escapeHtml(String(eintrag.startProzent))}" /></label>
+      <label>Ende %<input type="number" step="1" min="0" max="100" name="endeProzent" value="${escapeHtml(String(eintrag.endeProzent))}" /></label>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
+      <input type="checkbox" name="bezahlt" ${eintrag.bezahlt ? "checked" : ""} /> Bezahlt
+    </label>
+    <label>Bemerkung<textarea name="bemerkung" rows="2">${escapeHtml(eintrag.bemerkung)}</textarea></label>
+    <div class="form-actions">
+      <button type="submit"><i class="ti ti-check"></i> Speichern</button>
+      <button type="button" id="cancel-ladung" class="secondary">Abbrechen</button>
+      ${existing ? `<button type="button" id="delete-ladung" class="danger"><i class="ti ti-trash"></i></button>` : ""}
+    </div>
+  `;
+
+  form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(form);
+    const values = Object.fromEntries(fd.entries());
+    values.bezahlt = fd.get("bezahlt") === "on";
+    values.startProzent = values.startProzent === "" ? "" : Number(values.startProzent);
+    values.endeProzent = values.endeProzent === "" ? "" : Number(values.endeProzent);
+    if (isNew) {
+      s.log.push({ id: "lad" + Date.now() + Math.random().toString(36).slice(2, 6), ...values });
+    } else {
+      Object.assign(existing, values);
+    }
+    saveChange();
+    editingLadungId = null;
+    onChange();
+  });
+  form.querySelector("#cancel-ladung").onclick = () => { editingLadungId = null; onChange(); };
+  const deleteBtn = form.querySelector("#delete-ladung");
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      if (!confirm("Diese Ladung wirklich löschen?")) return;
+      s.log = s.log.filter((x) => x.id !== existing.id);
+      saveChange();
+      editingLadungId = null;
+      onChange();
+    };
+  }
+
+  container.innerHTML = "";
+  container.appendChild(form);
+}
+
+// ===========================================================
+// VERWALTUNG: RATGEBER & NOTFALL (zentraler Wissens-Katalog,
+// unabhängig von Ferien - 1:1 nach dem Excel-Register)
+// ===========================================================
+let editingRatgeberId = null;
+
+function ensureRatgeberDatenbank() {
+  const data = getData();
+  if (!data.ratgeberDatenbank || !data.ratgeberDatenbank.length) {
+    data.ratgeberDatenbank = DEFAULT_RATGEBER_EINTRAEGE.map((r, i) => ({ id: "rat-default-" + i, ...r }));
+  }
+  return data.ratgeberDatenbank;
+}
+
+function renderRatgeberTab(el) {
+  const katalog = ensureRatgeberDatenbank();
+  el.innerHTML = `
+    <section class="panel">
+      <h2><i class="ti ti-book-2"></i> Ratgeber &amp; Notfall</h2>
+      <p class="hint-small">Wissen für unterwegs: Was tun, wenn ... Kurzfassung hier, Details über den Link.</p>
+      <div id="ratgeber-list"></div>
+      <button id="new-ratgeber-button" class="secondary"><i class="ti ti-plus"></i> Neuer Eintrag</button>
+    </section>
+  `;
+
+  const list = document.getElementById("ratgeber-list");
+  if (!katalog.length) {
+    list.innerHTML = `<p class="hint-empty">Noch keine Einträge.</p>`;
+  } else {
+    const byBereich = [];
+    const byName = {};
+    [...katalog].sort((a, b) => (a.bereich || "").localeCompare(b.bereich || "") || (a.thema || "").localeCompare(b.thema || "")).forEach((r) => {
+      const bereich = r.bereich || "Allgemein";
+      if (!byName[bereich]) { byName[bereich] = { bereich, items: [] }; byBereich.push(byName[bereich]); }
+      byName[bereich].items.push(r);
+    });
+    byBereich.forEach((g) => {
+      const collapseKey = "ratgeber:" + g.bereich;
+      const { header, isCollapsed } = collapsibleHeader(
+        collapseKey,
+        `<i class="ti ${categoryIcon(g.bereich)}"></i> ${escapeHtml(g.bereich)} <span class="hint-small" style="margin:0">(${g.items.length})</span>`,
+        () => renderRatgeberTab(el)
+      );
+      header.className += " category-header";
+      list.appendChild(header);
+      if (isCollapsed) return;
+      g.items.forEach((r) => {
+        const row = document.createElement("div");
+        row.className = "item-row";
+        const textSpan = document.createElement("span");
+        textSpan.style.flex = "1";
+        textSpan.style.cursor = "pointer";
+        textSpan.innerHTML = `
+          <strong>${escapeHtml(r.thema)}</strong>
+          <br /><span class="hint-small" style="margin:0">${escapeHtml(r.wasDuWissenMusst)}</span>
+          ${r.link ? `<br /><a href="${escapeHtml(r.link)}" target="_blank" rel="noopener" class="hint-small" onclick="event.stopPropagation()">Link${r.quelle ? ` (${escapeHtml(r.quelle)})` : ""}</a>` : (r.quelle ? `<br /><span class="hint-small" style="margin:0">Quelle: ${escapeHtml(r.quelle)}</span>` : "")}
+          ${r.zuletztGeprueft ? `<br /><span class="hint-small" style="margin:0">Zuletzt geprüft: ${formatDate(r.zuletztGeprueft)}</span>` : ""}
+        `;
+        textSpan.onclick = () => { editingRatgeberId = r.id; renderRatgeberTab(el); };
+        row.appendChild(textSpan);
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "icon-btn danger";
+        delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+        delBtn.onclick = (ev) => {
+          ev.stopPropagation();
+          if (!confirm(`"${r.thema}" wirklich löschen?`)) return;
+          const data = getData();
+          data.ratgeberDatenbank = data.ratgeberDatenbank.filter((x) => x.id !== r.id);
+          saveChange();
+          renderRatgeberTab(el);
+        };
+        row.appendChild(delBtn);
+        list.appendChild(row);
+      });
+    });
+  }
+
+  document.getElementById("new-ratgeber-button").onclick = () => { editingRatgeberId = "__neu__"; renderRatgeberTab(el); };
+  if (editingRatgeberId) {
+    openModal(renderRatgeberForm(katalog, () => renderRatgeberTab(el)), () => { editingRatgeberId = null; });
+  }
+}
+
+function renderRatgeberForm(katalog, onChange) {
+  const isNew = editingRatgeberId === "__neu__";
+  const existing = isNew ? null : katalog.find((r) => r.id === editingRatgeberId);
+  const r = existing || { bereich: "", thema: "", wasDuWissenMusst: "", link: "", quelle: "", zuletztGeprueft: "" };
+
+  const form = document.createElement("form");
+  form.className = "field-form";
+  form.innerHTML = `
+    <label>Bereich<input type="text" name="bereich" value="${escapeHtml(r.bereich)}" placeholder="z. B. Gesundheit &amp; Notfall" required /></label>
+    <label>Thema<input type="text" name="thema" value="${escapeHtml(r.thema)}" required /></label>
+    <label>Was du wissen musst<textarea name="wasDuWissenMusst" rows="4">${escapeHtml(r.wasDuWissenMusst)}</textarea></label>
+    <label>Link<input type="url" name="link" value="${escapeHtml(r.link)}" placeholder="https://..." /></label>
+    <div class="field-row">
+      <label>Quelle<input type="text" name="quelle" value="${escapeHtml(r.quelle)}" /></label>
+      <label>Zuletzt geprüft<input type="date" name="zuletztGeprueft" value="${escapeHtml(r.zuletztGeprueft)}" /></label>
+    </div>
+    <div class="form-actions">
+      <button type="submit"><i class="ti ti-check"></i> Speichern</button>
+      <button type="button" id="cancel-ratgeber" class="secondary">Abbrechen</button>
+      ${existing ? `<button type="button" id="delete-ratgeber" class="danger"><i class="ti ti-trash"></i></button>` : ""}
+    </div>
+  `;
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const values = Object.fromEntries(fd.entries());
+    if (!values.thema || !values.bereich) return;
+    if (isNew) {
+      katalog.push({ id: "rat" + Date.now() + Math.random().toString(36).slice(2, 6), ...values });
+    } else {
+      Object.assign(existing, values);
+    }
+    saveChange();
+    editingRatgeberId = null;
+    onChange();
+  });
+  form.querySelector("#cancel-ratgeber").onclick = () => { editingRatgeberId = null; onChange(); };
+  const deleteBtn = form.querySelector("#delete-ratgeber");
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      if (!confirm(`"${existing.thema}" wirklich löschen?`)) return;
+      const data = getData();
+      data.ratgeberDatenbank = data.ratgeberDatenbank.filter((x) => x.id !== existing.id);
+      saveChange();
+      editingRatgeberId = null;
+      onChange();
+    };
+  }
+
+  return form;
+}
+
+// ===========================================================
+// TAB: ANLEITUNG (statische Hilfeseite - erklärt die App-Mechanik,
+// Nachfolger des Excel-Registers "Anleitung")
+// ===========================================================
+function renderAnleitungTab(el) {
+  el.innerHTML = `
+    <section class="panel">
+      <h2><i class="ti ti-help-circle"></i> Anleitung</h2>
+      <p class="hint-small">Wie die Ferien-App funktioniert - kurz erklärt.</p>
+    </section>
+  `;
+
+  const abschnitte = [
+    {
+      key: "merkmale-filter",
+      titel: "Wie die Packliste/To-Do gefiltert wird",
+      icon: "ti-filter",
+      text: `Jeder Artikel bzw. To-Do-Punkt in der zentralen Datenbank kann ein oder mehrere Merkmale tragen (z. B. "Winter", "Ausland", "Auto"). Im Tab "Ferien" wählst du für die aktuelle Ferien die passenden Merkmale aus - danach erscheinen automatisch alle Artikel/To-Dos, die KEIN Merkmal verlangen (Standard) oder mindestens eines deiner angekreuzten Merkmale tragen. Das ersetzt die WAHR/FALSCH-Formeln aus dem alten Excel-Master; nichts muss manuell nachgeführt werden.`,
+    },
+    {
+      key: "artikel-erfassen",
+      titel: "Neuen Artikel dauerhaft erfassen",
+      icon: "ti-database-plus",
+      text: `Im Tab "Artikel-DB" auf "Neuer Artikel" tippen (oder in der Packliste bei einem einmalig erfassten Punkt auf das Datenbank-Icon). Im Formular Kategorien (Mehrfachauswahl möglich) und gewünschte Merkmale per Chip auswählen - ein Artikel ohne Merkmal gilt als Standard und erscheint in jeder Ferien automatisch. Änderungen gelten sofort für alle künftigen Ferien, bereits bestehende Packlisten werden nicht rückwirkend verändert.`,
+    },
+    {
+      key: "artikel-matrix",
+      titel: "Matrix-Ansicht der Artikel-Datenbank",
+      icon: "ti-table",
+      text: `In der Matrix-Ansicht siehst du alle Artikel und Merkmale als Tabelle mit Checkboxen - 1:1 wie früher im Excel. Merkmal-Spalten sind farblich nach Überbegriff gruppiert (z. B. "Transport": Auto/VW-Bus/Flugzeug/öV). Jede Kategorie lässt sich einzeln ein-/ausklappen, ein Klick auf den Artikelnamen öffnet das Bearbeiten-Formular.`,
+    },
+    {
+      key: "einmalig-fix",
+      titel: '"Einmalig" vs. "Fix" bei neuen Einträgen',
+      icon: "ti-pin",
+      text: `Trägst du direkt in einer Ferien einen neuen Punkt ein, wählst du zwischen "Einmalig" (gilt nur für diese Ferien) und "Fix" (wird zusätzlich dauerhaft in die zentrale Artikel-Datenbank bzw. To-Do-Vorlage übernommen und taucht ab sofort auch in künftigen Ferien auf).`,
+    },
+    {
+      key: "reisetag",
+      titel: 'Register "Reisetag"',
+      icon: "ti-calendar-time",
+      text: `Zeigt tagesweise, was an einem bestimmten Ferientag ansteht - dieselben Packliste-/To-Do-Einträge wie in den jeweiligen Listen, nur anders sortiert. Abhaken hier wirkt sich automatisch auch dort aus (und umgekehrt), da es sich um dieselben Datensätze handelt.`,
+    },
+    {
+      key: "ansicht-reset",
+      titel: "Ansicht zurücksetzen",
+      icon: "ti-refresh",
+      text: `Hast du dich in Filtern, Sortierungen oder Ein-/Ausklapp-Zuständen "verklickt"? Unter Einstellungen → "Ansicht zurücksetzen" lässt sich das auf den Standard zurücksetzen, ohne dass dabei Daten (Packliste, To-Dos, Ferien usw.) verloren gehen.`,
+    },
+    {
+      key: "offline",
+      titel: "Offline-Nutzung & Synchronisation",
+      icon: "ti-cloud",
+      text: `Die App speichert ihre Daten in einer Datei in deinem OneDrive und funktioniert dank Service Worker auch kurzzeitig ohne Internetverbindung. Änderungen werden synchronisiert, sobald wieder eine Verbindung besteht - bei Konflikten (z. B. Bearbeitung auf zwei Geräten gleichzeitig) gewinnt der zuletzt gespeicherte Stand.`,
+    },
+  ];
+
+  abschnitte.forEach((a) => {
+    const section = document.createElement("section");
+    section.className = "panel";
+    const { header, isCollapsed } = collapsibleHeader(
+      "anleitung:" + a.key,
+      `<i class="ti ${a.icon}"></i> ${escapeHtml(a.titel)}`,
+      () => renderAnleitungTab(el)
+    );
+    section.appendChild(header);
+    if (!isCollapsed) {
+      const p = document.createElement("p");
+      p.className = "hint-small";
+      p.style.margin = "0";
+      p.textContent = a.text;
+      section.appendChild(p);
+    }
+    el.appendChild(section);
+  });
+}
+
+// ===========================================================
+// TAB: RÜCKBLICK (Freitext-Formular pro Ferien, kurz nach der
+// Heimkehr auszufüllen - 1:1 nach dem Excel-Register)
+// ===========================================================
+function ensureRueckblick(trip) {
+  trip.rueckblick = trip.rueckblick || {
+    toll: "", andersMachen: "", packlisteFehlte: "", packlisteUnnoetig: "",
+    lieblingsOrt: "", tipps: "", fotosLink: "", gesamtkosten: "", nochmalsHin: "",
+  };
+  return trip.rueckblick;
+}
+
+function renderRueckblickTab(el, trip) {
+  if (!trip) {
+    el.innerHTML = `<p class="hint">Noch keine Ferien angelegt.</p>`;
+    return;
+  }
+  const r = ensureRueckblick(trip);
+
+  const felder = [
+    { key: "toll", label: "Was war besonders toll?" },
+    { key: "andersMachen", label: "Was würden wir nächstes Mal anders machen?" },
+    { key: "packlisteFehlte", label: "Packliste: Was hat gefehlt?" },
+    { key: "packlisteUnnoetig", label: "Packliste: Was war unnötig / zu viel dabei?" },
+    { key: "lieblingsOrt", label: "Lieblings-Restaurant / -Ort / -Aktivität" },
+    { key: "tipps", label: "Tipps für nächstes Mal (Timing, Route, Reservationen ...)" },
+    { key: "fotosLink", label: "Fotos / Videos - Link/Ablageort" },
+    { key: "gesamtkosten", label: "Gesamtkosten (Bauchgefühl vs. Budget)" },
+  ];
+
+  el.innerHTML = `
+    <section class="panel">
+      <h2><i class="ti ti-camera"></i> Rückblick - ${escapeHtml(trip.titel)}</h2>
+      <p class="hint-small">Kurz nach der Heimkehr ausfüllen, solange die Eindrücke frisch sind - hilft beim nächsten Mal enorm.</p>
+    </section>
+  `;
+
+  const form = document.createElement("form");
+  form.className = "field-form panel";
+  form.innerHTML = felder.map((f) => `
+    <label>${escapeHtml(f.label)}<textarea name="${f.key}" rows="2">${escapeHtml(r[f.key] || "")}</textarea></label>
+  `).join("") + `
+    <label>Nochmals hin?
+      <select name="nochmalsHin">
+        <option value="">-</option>
+        <option value="Ja" ${r.nochmalsHin === "Ja" ? "selected" : ""}>Ja</option>
+        <option value="Vielleicht" ${r.nochmalsHin === "Vielleicht" ? "selected" : ""}>Vielleicht</option>
+        <option value="Nein" ${r.nochmalsHin === "Nein" ? "selected" : ""}>Nein</option>
+      </select>
+    </label>
+    <div class="form-actions"><button type="submit"><i class="ti ti-check"></i> Speichern</button></div>
+  `;
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    felder.forEach((f) => { r[f.key] = (fd.get(f.key) || "").trim(); });
+    r.nochmalsHin = fd.get("nochmalsHin") || "";
+    saveChange();
+    const saved = document.createElement("p");
+    saved.className = "hint-small";
+    saved.style.color = "var(--green)";
+    saved.innerHTML = `<i class="ti ti-check"></i> Gespeichert.`;
+    form.appendChild(saved);
+    setTimeout(() => saved.remove(), 2000);
+  });
+
+  el.appendChild(form);
 }
 
 // ===========================================================
