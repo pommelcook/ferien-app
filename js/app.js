@@ -156,6 +156,7 @@ async function main() {
 
   ensureMerkmaleDefs();
   migrateFehlerhafteMerkmalSchluessel();
+  einmaligAllePrioritaetenZuruecksetzen();
   initScrollTopButton();
 
   const data = getData();
@@ -769,7 +770,7 @@ function renderReisetagTab(el, trip) {
       hint.textContent = "Keine To-Dos zu sehen.";
       todoSection.appendChild(hint);
     } else {
-      todosForDay.forEach((item) => todoSection.appendChild(reisetagItemRow(item, onChange)));
+      todosForDay.forEach((item) => todoSection.appendChild(reisetagItemRow(item, onChange, "todo")));
     }
     todoSection.appendChild(renderReisetagQuickAddForm(trip, "todo", reisetagOffset, onChange));
   }
@@ -794,7 +795,7 @@ function renderReisetagTab(el, trip) {
       empty.textContent = "Alles gepackt!";
       packSection.appendChild(empty);
     } else {
-      openPack.forEach((item) => packSection.appendChild(reisetagItemRow(item, onChange)));
+      openPack.forEach((item) => packSection.appendChild(reisetagItemRow(item, onChange, "packliste")));
     }
     packSection.appendChild(renderReisetagQuickAddForm(trip, "packliste", reisetagOffset, onChange));
   }
@@ -816,7 +817,7 @@ function reisetagItemMatches(item, trip, offset, showAllOpen) {
 /** Leichte Zeilen-Darstellung fürs Reisetag-Register: greift direkt auf
  *  dasselbe Item-Objekt wie Packliste/To-Do zu (keine Kopie), daher ist
  *  das Abhaken hier automatisch bidirektional synchron. */
-function reisetagItemRow(item, onChange) {
+function reisetagItemRow(item, onChange, listKey) {
   const row = document.createElement("div");
   row.className = "item-row" + (item.erledigt ? " done" : "") + (item.nichtRelevant ? " not-relevant" : "") + (item.prioritaet ? " priority" : "");
 
@@ -846,7 +847,17 @@ function reisetagItemRow(item, onChange) {
 
   const span = document.createElement("span");
   span.style.flex = "1";
+  span.style.cursor = "pointer";
+  span.title = "Antippen zum Bearbeiten";
   span.textContent = item.text;
+  span.onclick = () => {
+    const inDb = ensureVorlageFuerListKey(listKey).some((a) => a.text === item.text);
+    if (inDb) {
+      openLocalOderDbChoiceModal(item, onChange, listKey);
+    } else {
+      openLokalBearbeitenModal(item, onChange);
+    }
+  };
   if (item.termin !== undefined && item.termin !== null && item.termin !== "") {
     const badge = document.createElement("span");
     badge.className = "termin-badge";
@@ -1659,13 +1670,18 @@ function ensureMerkmaleDefs() {
   } else if (!data.merkmaleDefs || !data.merkmaleDefs.length) {
     data.merkmaleDefs = MERKMALE_DEFS.map((m) => ({ ...m }));
   } else {
-    // Neue, im Code nachträglich hinzugefügte Standard-Merkmale (z. B.
-    // Frühling/Herbst) auch bei bestehenden, schon angepassten Daten
-    // ergänzen - bereits vorhandene/eigene Merkmale bleiben unangetastet.
-    const vorhandeneKeys = new Set(data.merkmaleDefs.map((m) => m.key));
-    const fehlende = MERKMALE_DEFS.filter((m) => !vorhandeneKeys.has(m.key));
-    if (fehlende.length) {
-      data.merkmaleDefs = [...data.merkmaleDefs, ...fehlende.map((m) => ({ ...m }))];
+    // Label/Icon/Gruppe/Reihenfolge der Standard-Merkmale mit dem Code
+    // synchron halten (z. B. Umbenennungen, neue Merkmale, geänderte
+    // Gruppierung/Reihenfolge) - eigene, zusätzliche Merkmale (Keys, die
+    // nicht im Code vorkommen) bleiben unangetastet und werden ans Ende
+    // angehängt.
+    const standardKeys = new Set(MERKMALE_DEFS.map((m) => m.key));
+    const eigene = data.merkmaleDefs.filter((m) => !standardKeys.has(m.key));
+    const neueListe = [...MERKMALE_DEFS.map((m) => ({ ...m })), ...eigene];
+    const alt = JSON.stringify(data.merkmaleDefs);
+    const neu = JSON.stringify(neueListe);
+    if (alt !== neu) {
+      data.merkmaleDefs = neueListe;
       saveChange();
     }
   }
@@ -1710,7 +1726,7 @@ function migrateFehlerhafteMerkmalSchluessel() {
     let changed = false;
     liste.forEach((item) => {
       if (Array.isArray(item.nurWenn)) {
-        const neu = item.nurWenn.map((k) => mapping[k] || k);
+        const neu = item.nurWenn.map((k) => mapping[k] | k);
         if (neu.some((k, i) => k !== item.nurWenn[i])) {
           item.nurWenn = neu;
           changed = true;
@@ -1729,6 +1745,20 @@ function migrateFehlerhafteMerkmalSchluessel() {
   });
 
   data.merkmalSchluesselFixV1 = true;
+  saveChange();
+}
+
+// Einmaliger Reset aller Prio-Markierungen (auf Nutzerwunsch, da sich durch
+// einen früheren Darstellungsfehler - Prio-Icon im Dunkelmodus praktisch
+// unsichtbar - vermutlich ungewollt viele Prio-Flags angesammelt haben).
+function einmaligAllePrioritaetenZuruecksetzen() {
+  const data = getData();
+  if (data.prioResetV1) return;
+  (data.ferien || []).forEach((trip) => {
+    (trip.packliste || []).forEach((item) => { item.prioritaet = false; });
+    (trip.todo || []).forEach((item) => { item.prioritaet = false; });
+  });
+  data.prioResetV1 = true;
   saveChange();
 }
 
@@ -2085,16 +2115,82 @@ function etappenLabel(trip, etappe) {
  *  sind: zwei gleichwertige, klar beschriftete Optionen statt eines
  *  confirm()-Dialogs (der eher wie eine Fehlermeldung wirkte und dessen
  *  "Abbrechen" nicht nach einer echten Option klang). */
-function openLocalOderDbChoiceModal(item, onChange) {
+// Echtes Popup-Formular (statt Browser-prompt()-Kette) zum lokalen
+// Bearbeiten eines Packliste-/To-Do-Eintrags - inkl. Bemerkung-Feld, das
+// bisher über die prompt()-Dialoge leicht zu übersehen war.
+function openLokalBearbeitenModal(item, onChange) {
+  const wrap = document.createElement("div");
+  wrap.className = "field-form";
+  wrap.innerHTML = `
+    <h3><i class="ti ti-pencil"></i> Lokal bearbeiten</h3>
+    <p class="hint-small">Gilt nur für diese Ferien.</p>
+    <label>Text<input type="text" id="lokal-edit-text" class="field-emphasized" value="${escapeHtml(item.text)}" /></label>
+    <label>Kategorie<input type="text" id="lokal-edit-kategorie" value="${escapeHtml(item.kategorie || "Allgemein")}" /></label>
+    <label>Bemerkung (gilt nur für diese Ferien, optional)<textarea id="lokal-edit-bemerkung" class="field-emphasized" rows="2">${escapeHtml(item.bemerkung || "")}</textarea></label>
+    <div class="form-actions">
+      <button type="button" id="lokal-edit-save"><i class="ti ti-check"></i> Speichern</button>
+      <button type="button" id="lokal-edit-cancel" class="secondary">Abbrechen</button>
+    </div>
+  `;
+  openModal(wrap, () => {});
+  wrap.querySelector("#lokal-edit-cancel").onclick = () => closeModal();
+  wrap.querySelector("#lokal-edit-save").onclick = () => {
+    const neuerText = wrap.querySelector("#lokal-edit-text").value.trim();
+    const neueKategorie = wrap.querySelector("#lokal-edit-kategorie").value.trim();
+    const neueBemerkung = wrap.querySelector("#lokal-edit-bemerkung").value.trim();
+    item.text = neuerText || item.text;
+    item.kategorie = neueKategorie || "Allgemein";
+    item.bemerkung = neueBemerkung;
+    saveChange();
+    closeModal();
+    onChange();
+  };
+}
+
+function ensureVorlageFuerListKey(listKey) {
+  return listKey === "todo" ? ensureTodoVorlage() : ensureArtikelDatenbank();
+}
+
+// Leichtgewichtiges Popup zum Bearbeiten eines To-Do-Vorlage-Eintrags
+// (Text/Kategorie) - ein vollständiges To-Do-Formular analog zum
+// Artikel-Formular (mit Merkmalen/Bemerkung) ist als eigener Punkt geplant.
+function openTodoVorlageEditModal(entry, onSaved) {
+  const wrap = document.createElement("div");
+  wrap.className = "field-form";
+  wrap.innerHTML = `
+    <h3><i class="ti ti-database"></i> To-Do-Vorlage bearbeiten</h3>
+    <p class="hint-small">Gilt für alle Ferien, auch künftige.</p>
+    <label>Text<input type="text" id="vorlage-edit-text" class="field-emphasized" value="${escapeHtml(entry.text)}" /></label>
+    <label>Kategorie<input type="text" id="vorlage-edit-kategorie" value="${escapeHtml(entry.kategorie || "Allgemein")}" /></label>
+    <div class="form-actions">
+      <button type="button" id="vorlage-edit-save"><i class="ti ti-check"></i> Speichern</button>
+      <button type="button" id="vorlage-edit-cancel" class="secondary">Abbrechen</button>
+    </div>
+  `;
+  openModal(wrap, () => {});
+  wrap.querySelector("#vorlage-edit-cancel").onclick = () => closeModal();
+  wrap.querySelector("#vorlage-edit-save").onclick = () => {
+    const neuerText = wrap.querySelector("#vorlage-edit-text").value.trim();
+    const neueKategorie = wrap.querySelector("#vorlage-edit-kategorie").value.trim();
+    entry.text = neuerText || entry.text;
+    entry.kategorie = neueKategorie || "Allgemein";
+    saveChange();
+    closeModal();
+    onSaved();
+  };
+}
+
+function openLocalOderDbChoiceModal(item, onChange, listKey) {
+  const vorlageLabel = listKey === "todo" ? "zentralen To-Do-Vorlage" : "zentralen Artikel-Datenbank";
   const wrap = document.createElement("div");
   wrap.className = "choice-modal";
   wrap.innerHTML = `
     <h3><i class="ti ti-link"></i> "${escapeHtml(item.text)}" bearbeiten</h3>
-    <p class="hint-small">Dieser Artikel ist mit der zentralen Artikel-Datenbank verknüpft. Wo möchtest du die Änderung vornehmen?</p>
+    <p class="hint-small">Dieser Eintrag ist mit der ${vorlageLabel} verknüpft. Wo möchtest du die Änderung vornehmen?</p>
     <div class="choice-modal-options">
       <button type="button" class="choice-option" id="choice-lokal">
         <i class="ti ti-map-pin"></i>
-        <span><strong>Nur hier ändern</strong><span class="choice-desc">Gilt nur für diese Ferien - der DB-Artikel bleibt unverändert.</span></span>
+        <span><strong>Nur hier ändern</strong><span class="choice-desc">Gilt nur für diese Ferien - der Vorlage-Eintrag bleibt unverändert.</span></span>
       </button>
       <button type="button" class="choice-option choice-option-secondary" id="choice-db">
         <i class="ti ti-database"></i>
@@ -2104,24 +2200,16 @@ function openLocalOderDbChoiceModal(item, onChange) {
   `;
   openModal(wrap, () => {});
   wrap.querySelector("#choice-lokal").onclick = () => {
-    closeModal();
-    const neuerText = prompt("Text (gilt nur für diese Ferien):", item.text);
-    if (neuerText === null) return;
-    const neueKategorie = prompt("Kategorie:", item.kategorie || "Allgemein");
-    if (neueKategorie === null) return;
-    const neueBemerkung = prompt("Bemerkung (gilt nur für diese Ferien, optional):", item.bemerkung || "");
-    if (neueBemerkung === null) return;
-    item.text = neuerText.trim() || item.text;
-    item.kategorie = neueKategorie.trim() || "Allgemein";
-    item.bemerkung = neueBemerkung.trim();
-    saveChange();
-    onChange();
+    openLokalBearbeitenModal(item, onChange);
   };
   wrap.querySelector("#choice-db").onclick = () => {
     closeModal();
-    const katalog = ensureArtikelDatenbank();
+    const katalog = ensureVorlageFuerListKey(listKey);
     const dbEntry = katalog.find((a) => a.text === item.text);
-    if (dbEntry) {
+    if (!dbEntry) return;
+    if (listKey === "todo") {
+      openTodoVorlageEditModal(dbEntry, onChange);
+    } else {
       editingArtikelId = dbEntry.id || dbEntry.text;
       openModal(
         renderArtikelForm(katalog, () => { closeModal(); onChange(); }, dbEntry),
@@ -2207,23 +2295,13 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
   const actionCluster = document.createElement("span");
   actionCluster.className = "item-row-actions";
 
-  function openEditForItem() {
-    const inDb = listKey === "packliste" && ensureArtikelDatenbank().some((a) => a.text === item.text);
+    function openEditForItem() {
+    const inDb = (listKey === "packliste" || listKey === "todo") && ensureVorlageFuerListKey(listKey).some((a) => a.text === item.text);
     if (inDb) {
-      openLocalOderDbChoiceModal(item, onChange);
+      openLocalOderDbChoiceModal(item, onChange, listKey);
       return;
     }
-    const neuerText = prompt("Text (gilt nur für diese Ferien):", item.text);
-    if (neuerText === null) return;
-    const neueKategorie = prompt("Kategorie:", item.kategorie || "Allgemein");
-    if (neueKategorie === null) return;
-    const neueBemerkung = prompt("Bemerkung (gilt nur für diese Ferien, optional):", item.bemerkung || "");
-    if (neueBemerkung === null) return;
-    item.text = neuerText.trim() || item.text;
-    item.kategorie = neueKategorie.trim() || "Allgemein";
-    item.bemerkung = neueBemerkung.trim();
-    saveChange();
-    onChange();
+    openLokalBearbeitenModal(item, onChange);
   }
 
   const prioBtn = document.createElement("button");
@@ -2427,10 +2505,15 @@ function renderEinstellungenTab(el) {
       <p class="hint-small">Status: ${notifLabel}. Erinnerungen kannst du pro Artikel/To-Do über das Glocken-Symbol setzen. Funktioniert nur, solange die App in einem Browser-Tab geöffnet ist (bzw. kurz danach) - echtes Push bei geschlossener App bräuchte einen eigenen Server, den diese rein statische App bewusst nicht hat.</p>
       ${notifSupported && notifPermission !== "granted" ? `<button id="enable-notif" class="secondary"><i class="ti ti-bell"></i> Benachrichtigungen aktivieren</button>` : ""}
     </section>
-    <section class="panel">
+        <section class="panel">
       <h2><i class="ti ti-arrow-back-up"></i> Ansicht zurücksetzen</h2>
       <p class="hint-small">Setzt Ein-/Ausklapp-Zustände, Filter, Sortierung und Gruppierung alle Listen auf den Standard zurück (z. B. wenn du dich in Filtern/Ansichten "verklickt" hast). Deine Daten (Packliste, To-Dos, Ferien usw.) bleiben unverändert.</p>
       <button id="reset-ansicht-button" class="secondary"><i class="ti ti-refresh"></i> Ansicht zurücksetzen</button>
+    </section>
+    <section class="panel">
+      <h2><i class="ti ti-flag-off"></i> Prioritäten zurücksetzen</h2>
+      <p class="hint-small">Entfernt die Prio-Markierung (Flagge) von ALLEN Artikeln und To-Dos in ALLEN Ferien. Nützlich, wenn sich zu viele Prio-Markierungen angesammelt haben.</p>
+      <button id="reset-prio-button" class="secondary"><i class="ti ti-flag-off"></i> Alle Prioritäten zurücksetzen</button>
     </section>
     <p class="version-footer">Ferien-App v${APP_VERSION} &middot; Stand ${APP_BUILD_DATE}</p>
   `;
@@ -2440,6 +2523,16 @@ function renderEinstellungenTab(el) {
   document.getElementById("reset-ansicht-button").onclick = () => {
     if (!confirm("Ansicht (Filter, Sortierung, Ein-/Ausklapp-Zustände) auf Standard zurücksetzen? Deine Daten bleiben erhalten.")) return;
     resetAnsichtEinstellungen();
+    render();
+  };
+  document.getElementById("reset-prio-button").onclick = () => {
+    if (!confirm("Prio-Markierung bei ALLEN Artikeln und To-Dos in ALLEN Ferien entfernen?")) return;
+    const data = getData();
+    (data.ferien || []).forEach((trip) => {
+      (trip.packliste || []).forEach((item) => { item.prioritaet = false; });
+      (trip.todo || []).forEach((item) => { item.prioritaet = false; });
+    });
+    saveChange();
     render();
   };
   const enableBtn = document.getElementById("enable-notif");
@@ -2609,20 +2702,38 @@ function renderArtikelTab(el) {
       header.className += " category-header";
       list.appendChild(header);
       if (isCollapsed) return;
-      g.items.forEach((a) => {
-        const merkmaleLabels = (a.merkmale || []).map((k) => (getMerkmaleDefs().find((m) => m.key === k) || {}).label).filter(Boolean);
-        const alreadyOnPackliste = istAufAktuellerPackliste(a, trip);
+      g.items.forEach((a) => {        const alreadyOnPackliste = istAufAktuellerPackliste(a, trip);
         const kategorien = getArtikelKategorien(a);
         const row = document.createElement("div");
         row.className = "item-row" + (alreadyOnPackliste ? " item-row-on-packliste" : "");
-        const textSpan = document.createElement("span");
-        textSpan.style.flex = "1";
-        textSpan.innerHTML = `${alreadyOnPackliste ? `<span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i></span> ` : ""}${escapeHtml(a.text)}${kategorien.length > 1 ? ` <span class="hint-small" style="margin:0">(${kategorien.map(escapeHtml).join(", ")})</span>` : ""}${merkmaleLabels.length ? `<br /><span class="hint-small" style="margin:0">${merkmaleLabels.map(escapeHtml).join(", ")}</span>` : ""}${a.bemerkung ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-message-2"></i> ${escapeHtml(a.bemerkung)}</span>` : ""}`;
-        // Klick auf den Text öffnet direkt das Bearbeiten-Popup (kein
-        // separates Bleistift-Icon mehr nötig, spart Platz in der Zeile).
-        textSpan.onclick = () => { editingArtikelId = a.id; renderArtikelTab(el); };
-        row.appendChild(textSpan);
+
+        function addZuPackliste(erledigt) {
+          trip.packliste.push({
+            id: "i" + Date.now() + Math.random().toString(36).slice(2, 6),
+            text: a.text,
+            erledigt: !!erledigt,
+            kategorie: a.kategorie || kategorien[0] || "Allgemein",
+            sort: trip.packliste.length,
+            ...(a.merkmale && a.merkmale.length ? { nurWenn: a.merkmale } : {}),
+          });
+          saveChange();
+          renderArtikelTab(el);
+        }
+
         if (trip) {
+          // Checkbox: Artikel direkt auf die Packliste setzen UND abhaken
+          // (für Artikel, die man schon eingepackt hat, aber noch nicht in
+          // der DB als "auf Packliste" markiert sind).
+          const quickCb = document.createElement("input");
+          quickCb.type = "checkbox";
+          quickCb.checked = alreadyOnPackliste;
+          quickCb.title = "Direkt auf die Packliste setzen und abhaken";
+          quickCb.onclick = (e) => {
+            e.stopPropagation();
+            if (!alreadyOnPackliste) addZuPackliste(true);
+          };
+          row.appendChild(quickCb);
+
           const addBtn = document.createElement("button");
           addBtn.type = "button";
           addBtn.className = "icon-btn";
@@ -2630,19 +2741,21 @@ function renderArtikelTab(el) {
           addBtn.title = `Zu Packliste von "${trip.titel}" hinzufügen`;
           addBtn.onclick = (e) => {
             e.stopPropagation();
-            trip.packliste.push({
-              id: "i" + Date.now() + Math.random().toString(36).slice(2, 6),
-              text: a.text,
-              erledigt: false,
-              kategorie: a.kategorie || kategorien[0] || "Allgemein",
-              sort: trip.packliste.length,
-              ...(a.merkmale && a.merkmale.length ? { nurWenn: a.merkmale } : {}),
-            });
-            saveChange();
-            renderArtikelTab(el);
+            addZuPackliste(false);
           };
           row.appendChild(addBtn);
         }
+
+        const textSpan = document.createElement("span");
+        textSpan.style.flex = "1";
+        textSpan.innerHTML = `${alreadyOnPackliste ? `<span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i></span> ` : ""}${escapeHtml(a.text)}${kategorien.length > 1 ? ` <span class="hint-small" style="margin:0">(${kategorien.map(escapeHtml).join(", ")})</span>` : ""}${a.bemerkung ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-message-2"></i> ${escapeHtml(a.bemerkung)}</span>` : ""}`;
+        // Klick auf den Text öffnet direkt das Bearbeiten-Popup (kein
+        // separates Bleistift-Icon mehr nötig, spart Platz in der Zeile).
+        // Merkmale werden hier bewusst NICHT angezeigt (sprengt die Liste) -
+        // die sieht man im Popup oder in der Matrix-Ansicht.
+        textSpan.onclick = () => { editingArtikelId = a.id; renderArtikelTab(el); };
+        row.appendChild(textSpan);
+
         const delBtn = document.createElement("button");
         delBtn.type = "button";
         delBtn.className = "icon-btn danger";
@@ -2659,6 +2772,7 @@ function renderArtikelTab(el) {
         row.appendChild(delBtn);
         list.appendChild(row);
       });
+
     });
   }
 
@@ -2715,7 +2829,7 @@ function renderArtikelMatrix(katalog, trip, onChange) {
   const gruppen = groupMerkmale(defs);
   const gruppenRow = document.createElement("tr");
   gruppenRow.className = "matrix-gruppen-row";
-  gruppenRow.innerHTML = `<th class="matrix-artikel-col"></th><th class="matrix-bemerkung-col"></th>`;
+  gruppenRow.innerHTML = `<th class="matrix-artikel-col"></th><th class="matrix-bemerkung-col"></th><th></th>`;
   gruppen.forEach((g, gIdx) => {
     const th = document.createElement("th");
     th.colSpan = g.items.length;
@@ -2727,7 +2841,7 @@ function renderArtikelMatrix(katalog, trip, onChange) {
   thead.appendChild(gruppenRow);
 
   const headRow = document.createElement("tr");
-  headRow.innerHTML = `<th class="matrix-artikel-col">Artikel</th><th class="matrix-bemerkung-col">Bemerkung</th>`;
+  headRow.innerHTML = `<th class="matrix-artikel-col">Artikel</th><th class="matrix-bemerkung-col">Bemerkung</th><th class="matrix-alle-col" title="Alle Merkmale auf/abwählen"><i class="ti ti-checks"></i></th>`;
   gruppen.forEach((g, gIdx) => {
     g.items.forEach((m) => {
       const th = document.createElement("th");
@@ -2770,7 +2884,7 @@ function renderArtikelMatrix(katalog, trip, onChange) {
   if (!byKategorie.length) {
     const emptyRow = document.createElement("tr");
     const emptyCell = document.createElement("td");
-    emptyCell.colSpan = orderedDefs.length + 3;
+    emptyCell.colSpan = orderedDefs.length + 4;
     emptyCell.className = "hint-empty";
     emptyCell.textContent = "Keine Artikel für diesen Filter.";
     emptyRow.appendChild(emptyCell);
@@ -2786,7 +2900,7 @@ function renderArtikelMatrix(katalog, trip, onChange) {
     katRow.className = "matrix-kategorie-row";
     katRow.style.cursor = "pointer";
     const katCell = document.createElement("td");
-    katCell.colSpan = orderedDefs.length + 3;
+    katCell.colSpan = orderedDefs.length + 4;
     katCell.innerHTML = `<i class="ti ti-chevron-${isKatCollapsed ? "right" : "down"}"></i> <i class="ti ${categoryIcon(g.kategorie)}"></i> ${escapeHtml(g.kategorie)} <span class="hint-small" style="margin:0">(${g.items.length})</span>`;
     katRow.onclick = () => {
       if (isKatCollapsed) collapsed.delete(collapseKey);
@@ -2818,6 +2932,23 @@ function renderArtikelMatrix(katalog, trip, onChange) {
       row.appendChild(bemerkungCell);
 
       const selected = new Set(a.merkmale || []);
+      const merkmaleCheckboxes = [];
+      const alleCell = document.createElement("td");
+      alleCell.className = "matrix-alle-col";
+      const alleCb = document.createElement("input");
+      alleCb.type = "checkbox";
+      alleCb.title = "Alle Merkmale auf/abwählen";
+      alleCb.checked = orderedDefs.length > 0 && orderedDefs.every((m) => selected.has(m.key));
+      alleCb.onchange = () => {
+        if (alleCb.checked) orderedDefs.forEach((m) => selected.add(m.key));
+        else selected.clear();
+        a.merkmale = [...selected];
+        saveChange();
+        onChange();
+      };
+      alleCell.appendChild(alleCb);
+      row.appendChild(alleCell);
+
       orderedDefs.forEach((m) => {
         const cell = document.createElement("td");
         const cb = document.createElement("input");
@@ -2829,7 +2960,9 @@ function renderArtikelMatrix(katalog, trip, onChange) {
           else selected.delete(m.key);
           a.merkmale = [...selected];
           saveChange();
+          alleCb.checked = orderedDefs.every((mm) => selected.has(mm.key));
         };
+        merkmaleCheckboxes.push(cb);
         cell.appendChild(cb);
         row.appendChild(cell);
       });
@@ -2887,18 +3020,23 @@ function renderArtikelForm(katalog, onChange, prefill) {
 
   const form = document.createElement("form");
   form.className = "field-form";
+    const hatMerkmale = (a.merkmale || []).length > 0;
   form.innerHTML = `
-    <label>Artikel<input type="text" name="text" value="${escapeHtml(a.text)}" required /></label>
-    <label>Kategorien (Mehrfachauswahl möglich)</label>
-    <div class="chip-row" id="artikel-kategorien-chiprow"></div>
-    <div class="field-row">
-      <input type="text" id="artikel-neue-kategorie" placeholder="Neue Kategorie ..." style="flex:1" />
-      <button type="button" id="artikel-kategorie-add" class="secondary"><i class="ti ti-plus"></i></button>
-    </div>
-    <label>Bemerkung (allgemein)<textarea name="bemerkung" rows="2" placeholder="z. B. Ersatzlinsen, Linsenmittel, Linsenbehälter">${escapeHtml(a.bemerkung || "")}</textarea></label>
-    <label>Nur bei Merkmalen (optional)</label>
-    <p class="hint-small" style="margin:0 0 4px">Für Standardartikel, die für alle gelten, müssen keine Merkmale ausgewählt werden.</p>
-    <div id="artikel-merkmale-gruppen"></div>
+    <label>Artikel<input type="text" name="text" class="field-emphasized" value="${escapeHtml(a.text)}" required /></label>
+    <label>Bemerkung (allgemein)<textarea name="bemerkung" class="field-emphasized" rows="2" placeholder="z. B. Ersatzlinsen, Linsenmittel, Linsenbehälter">${escapeHtml(a.bemerkung || "")}</textarea></label>
+    <details class="form-section-box" open>
+      <summary>Kategorien (Mehrfachauswahl möglich)</summary>
+      <div class="chip-row" id="artikel-kategorien-chiprow"></div>
+      <div class="field-row">
+        <input type="text" id="artikel-neue-kategorie" placeholder="Neue Kategorie ..." style="flex:1" />
+        <button type="button" id="artikel-kategorie-add" class="secondary"><i class="ti ti-plus"></i></button>
+      </div>
+    </details>
+    <details class="form-section-box" open>
+      <summary>Merkmale (optional) <span class="standard-badge${hatMerkmale ? " hidden" : ""}" id="artikel-standard-badge" title="Standard: Dieser Artikel hat keine Merkmale ausgewählt und kommt dadurch automatisch auf JEDE Packliste.">✓ Standard</span></summary>
+      <p class="hint-small" style="margin:0 0 4px">Für Standardartikel, die für alle gelten, müssen keine Merkmale ausgewählt werden - sie tragen oben automatisch das Label "Standard".</p>
+      <div id="artikel-merkmale-gruppen"></div>
+    </details>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="cancel-artikel" class="secondary">Abbrechen</button>
@@ -2936,6 +3074,10 @@ function renderArtikelForm(katalog, onChange, prefill) {
   };
 
   const selectedMerkmale = new Set(a.merkmale || []);
+  const standardBadge = form.querySelector("#artikel-standard-badge");
+  const updateStandardBadge = () => {
+    if (standardBadge) standardBadge.classList.toggle("hidden", selectedMerkmale.size > 0);
+  };
   const gruppenContainer = form.querySelector("#artikel-merkmale-gruppen");
   groupMerkmale(getMerkmaleDefs()).forEach((g) => {
     const wrap = document.createElement("div");
@@ -2952,6 +3094,7 @@ function renderArtikelForm(katalog, onChange, prefill) {
         if (selectedMerkmale.has(m.key)) selectedMerkmale.delete(m.key);
         else selectedMerkmale.add(m.key);
         chip.classList.toggle("active");
+        updateStandardBadge();
       };
       chipRow.appendChild(chip);
     });
