@@ -181,6 +181,41 @@ main#tab-content {
 .field-form .form-actions { display: flex; gap: 6px; margin-top: 4px; }
 .field-form .form-actions button.danger { background: #fff; color: #c0392b; border: 1px solid #f0c4c0; margin-left: auto; }
 
+/* Artikel-/ToDo-Name & Bemerkung sollen sich deutlich von den grauen
+   Buttons/Labels abheben, damit man schnell sieht, was man eingetippt hat. */
+.field-form input.field-emphasized { font-weight: 700; color: #111; font-size: 13px; }
+.field-form textarea.field-emphasized { font-weight: 500; color: #111; }
+[data-theme="dark"] .field-form input.field-emphasized,
+[data-theme="dark"] .field-form textarea.field-emphasized { color: #fff; }
+
+/* Grössere Formular-Abschnitte (Kategorien, Merkmale) optisch abheben und
+   ein-/ausklappbar machen. */
+.field-form details.form-section-box {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-top: 2px;
+}
+.field-form details.form-section-box summary {
+  font-size: 11px;
+  color: var(--grey);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.field-form details.form-section-box[open] summary { margin-bottom: 6px; }
+.standard-badge {
+  font-size: 10px;
+  background: var(--green-light);
+  color: var(--green);
+  border-radius: 6px;
+  padding: 1px 6px;
+  cursor: help;
+}
+.standard-badge.hidden { display: none; }
+
 .dashboard-hero { text-align: center; }
 .dashboard-hero .countdown { font-size: 16px; font-weight: 500; margin: 4px 0 0; color: var(--green); }
 .dashboard-grid {
@@ -526,6 +561,10 @@ main#tab-content {
   --grey: #9aa0a6;
   --green-light: #16321a;
   --amber-light: #3a2e12;
+  /* Im Hellmodus ist --amber-dark ein dunkles Braun, das auf dem
+     dunklen Hintergrund kaum sichtbar ist (u. a. das Prio-Flaggen-Icon
+     "verschwand" dadurch quasi) - im Dunkelmodus daher ein helleres Amber. */
+  --amber-dark: #e0a458;
 }
 [data-theme="dark"] body { background: #16181c; color: #eee; }
 [data-theme="dark"] header,
@@ -843,13 +882,9 @@ main#tab-content {
 .artikel-matrix .matrix-bemerkung-col {
   text-align: left;
   white-space: normal;
-  max-width: 220px;
+  max-width: 160px;
   font-size: 11px;
   color: var(--grey);
-  display: none;
-}
-@media (min-width: 900px) {
-  .artikel-matrix .matrix-bemerkung-col { display: table-cell; }
 }
 [data-theme="dark"] .artikel-matrix thead th { background: #23262b; }
 [data-theme="dark"] .artikel-matrix .matrix-artikel-col { background: #1a1d21; }
@@ -863,7 +898,7 @@ main#tab-content {
 .artikel-matrix .matrix-gruppen-row .matrix-bemerkung-col { background: transparent !important; }
 [data-theme="dark"] .artikel-matrix .matrix-gruppen-row th { color: #222; }
 
-/* Liste-Ansicht: analog zur Matrix grau hinterlegen, wenn bereits auf der
+/* Liste-Ansicht: analog zur Matrix grau hinterlegt, wenn bereits auf der
    Packliste - macht in beiden Ansichten denselben Zustand sichtbar. */
 .item-row.item-row-on-packliste { opacity: 0.65; }
 .item-row.item-row-on-packliste > span { color: var(--grey); }
