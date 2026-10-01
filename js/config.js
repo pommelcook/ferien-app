@@ -25,7 +25,7 @@ const APP_CONFIG = {
 // ===========================================================
 // VERSION (wird im Tab "Mehr" angezeigt)
 // ===========================================================
-const APP_VERSION = "0.15.0";
+const APP_VERSION = "0.16.0";
 const APP_BUILD_DATE = "2026-10-01";
 
 // ===========================================================
@@ -63,7 +63,9 @@ const MERKMALE_DEFS = [
   { key: "flugzeug", label: "Flugzeug", icon: "ti-plane", gruppe: "🚗 Transport" },
   { key: "zugoev", label: "Zug / ÖV", icon: "ti-train", gruppe: "🚗 Transport" },
   // ☀️ Jahreszeit
+  { key: "fruehling", label: "Frühling", icon: "ti-flower", gruppe: "☀️ Jahreszeit" },
   { key: "sommer", label: "Sommer", icon: "ti-sun", gruppe: "☀️ Jahreszeit" },
+  { key: "herbst", label: "Herbst", icon: "ti-leaf", gruppe: "☀️ Jahreszeit" },
   { key: "winter", label: "Winter", icon: "ti-snowflake", gruppe: "☀️ Jahreszeit" },
   { key: "wintersport", label: "Wintersport", icon: "ti-ski-jumping", gruppe: "☀️ Jahreszeit" },
   // 👪 Mitreisende
