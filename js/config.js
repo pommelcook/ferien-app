@@ -25,7 +25,7 @@ const APP_CONFIG = {
 // ===========================================================
 // VERSION (wird im Tab "Mehr" angezeigt)
 // ===========================================================
-const APP_VERSION = "0.14.0";
+const APP_VERSION = "0.15.0";
 const APP_BUILD_DATE = "2026-10-01";
 
 // ===========================================================
@@ -385,6 +385,40 @@ function categoryIcon(name) {
   const rule = CATEGORY_ICON_RULES.find((r) => r.match.some((m) => n.includes(m)));
   return rule ? rule.icon : "ti-list";
 }
+
+// ===========================================================
+// RATGEBER & NOTFALL (zentraler Wissens-Katalog, unabhängig von Ferien -
+// 1:1 aus dem Register "📖 Ratgeber & Notfall" im Excel-Master übernommen)
+// ===========================================================
+const DEFAULT_RATGEBER_EINTRAEGE = [
+  {
+    bereich: "Gesundheit & Notfall",
+    thema: "Krank oder verletzt im Ausland",
+    wasDuWissenMusst:
+      "Vor der Reise klären, was die Krankenkasse im Ausland zahlt; EU/EFTA: Europäische Krankenversicherungskarte (Rückseite der KK-Karte) mitnehmen. Behandlung immer quittieren lassen – Rückerstattung nur mit Originalbeleg. Rücktransport ist meist NICHT gedeckt (Zusatz-/Reiseversicherung, z. B. TCS ETI).",
+    link: "https://www.tcs.ch/de/camping-reisen/reiseinformationen/wissenswertes/reisetipps/krankheit-ferien.php",
+    quelle: "TCS",
+    zuletztGeprueft: "2026-08-01",
+  },
+  {
+    bereich: "Gesundheit & Notfall",
+    thema: "Notrufnummern",
+    wasDuWissenMusst:
+      "Europaweit einheitlich: 112. Schweiz: 144 Sanität, 117 Polizei, 118 Feuerwehr, 1414 Rega. Vor Abreise die lokalen Nummern der Unterkunft notieren (Register \"Unterkunft\").",
+    link: "",
+    quelle: "Allgemein bekannt",
+    zuletztGeprueft: "2026-08-01",
+  },
+  {
+    bereich: "Auto & Verkehr",
+    thema: "Maut, Vignetten & Tempolimits im Ausland",
+    wasDuWissenMusst:
+      "Vor jeder Autoreise ins Ausland prüfen: Vignette/Maut-Pflicht (z. B. A/F/I/E/Slowenien), Tempolimits (variieren je Land, teils wetterabhängig), Umweltzonen/Stadt-Maut in Zielstädten. Vignette/Mautbox rechtzeitig besorgen (siehe To-Do \"Vignette / Maut-Kleber besorgen\").",
+    link: "https://www.tcs.ch/de/camping-reisen/reiseinformationen/wissenswertes/fahrkosten-gebuehren/",
+    quelle: "TCS",
+    zuletztGeprueft: "2026-09-29",
+  },
+];
 
 // MSAL-Konfigurationsobjekt (wird von auth.js verwendet)
 const MSAL_CONFIG = {
