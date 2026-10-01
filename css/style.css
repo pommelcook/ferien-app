@@ -906,3 +906,19 @@ main#tab-content {
 /* "Auf Packliste"-Icon immer deutlich grün, auch wenn die Zeile drumherum
    ausgegraut ist. */
 .on-packliste-badge, .on-packliste-badge i { color: var(--green) !important; }
+
+.field-form label.checkbox-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #222;
+  cursor: pointer;
+}
+[data-theme="dark"] .field-form label.checkbox-inline { color: #eee; }
+.field-form label.checkbox-inline input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--amber-dark);
+}
+.field-form label.checkbox-inline i { color: var(--amber-dark); }
