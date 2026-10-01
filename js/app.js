@@ -157,6 +157,7 @@ async function main() {
   ensureMerkmaleDefs();
   migrateFehlerhafteMerkmalSchluessel();
   einmaligAllePrioritaetenZuruecksetzen();
+  einmaligCheckStatusSetzen();
   initScrollTopButton();
 
   const data = getData();
@@ -872,6 +873,28 @@ function reisetagItemRow(item, onChange, listKey) {
     katBadge.textContent = item.kategorie;
     span.appendChild(katBadge);
   }
+  const reisetagTrip = getCurrentTrip();
+  if (!istFerienVorbei(reisetagTrip)) {
+    const dbEntryRt = ensureVorlageFuerListKey(listKey).find((e) => e.text === item.text);
+    if (dbEntryRt) {
+      if (dbEntryRt.spontan) {
+        const spontanBadgeRt = document.createElement("span");
+        spontanBadgeRt.className = "spontan-badge";
+        spontanBadgeRt.style.marginLeft = "6px";
+        spontanBadgeRt.title = "Spontan über Packliste/Reisetag erfasst - noch nicht vollständig geprüft";
+        spontanBadgeRt.innerHTML = `<i class="ti ti-sparkles"></i> Spontan`;
+        span.appendChild(spontanBadgeRt);
+      }
+      if (istCheckOffen(dbEntryRt)) {
+        const checkBadgeRt = document.createElement("span");
+        checkBadgeRt.className = "check-badge";
+        checkBadgeRt.style.marginLeft = "6px";
+        checkBadgeRt.title = "Dieser Datenbank-Eintrag wurde noch nicht geprüft";
+        checkBadgeRt.innerHTML = `<i class="ti ti-list-check"></i> Check offen`;
+        span.appendChild(checkBadgeRt);
+      }
+    }
+  }
   row.appendChild(span);
 
   return row;
@@ -935,10 +958,10 @@ function renderReisetagQuickAddForm(trip, key, offset, onChange) {
     if (erfassungsTyp === "fix") {
       if (key === "packliste") {
         const katalog = ensureArtikelDatenbank();
-        katalog.push({ id: "art" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, bemerkung: "", merkmale: [] });
+        katalog.push({ id: "art" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, bemerkung: "", merkmale: [], check: "offen", spontan: true });
       } else {
         const vorlage = ensureTodoVorlage();
-        vorlage.push({ id: "tv" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, merkmale: [] });
+        vorlage.push({ id: "tv" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, merkmale: [], check: "offen", spontan: true });
       }
     }
     saveChange();
@@ -1766,6 +1789,42 @@ function einmaligAllePrioritaetenZuruecksetzen() {
   saveChange();
 }
 
+// Einmalige Erstbefüllung: alle bestehenden Artikel-DB- und ToDo-Vorlage-
+// Einträge erhalten den Status "Check offen", damit man sie einzeln einmal
+// durchgehen und bei Bedarf korrigieren kann (Merkmale/Bemerkungen/Kategorien).
+// Neue Einträge erhalten den Status direkt bei der Erfassung (siehe
+// renderArtikelForm / die "Fix"-Schnellerfassung in Packliste/Reisetag).
+function einmaligCheckStatusSetzen() {
+  const data = getData();
+  if (data.checkStatusInitV1) return;
+  ensureArtikelDatenbank().forEach((a) => { if (a.check === undefined) a.check = "offen"; });
+  ensureTodoVorlage().forEach((v) => { if (v.check === undefined) v.check = "offen"; });
+  data.checkStatusInitV1 = true;
+  saveChange();
+}
+
+/** true, wenn ein Artikel-DB-/ToDo-Vorlage-Eintrag noch nicht geprüft wurde
+ *  ("Check offen"). Fehlt das Feld (sollte nach der Migration nicht mehr
+ *  vorkommen), gilt der Eintrag sicherheitshalber ebenfalls als offen. */
+function istCheckOffen(entry) {
+  return !entry || entry.check !== "erledigt";
+}
+
+/** Formatiert das Datum der letzten Prüfung kurz fürs Popup. */
+function formatCheckDatum(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("de-CH");
+}
+
+/** true, wenn eine Ferien bereits vorbei ist (Ende-Datum in der Vergangenheit).
+ *  Für vergangene Ferien werden die Check-Badges nicht mehr angezeigt, da
+ *  eine nachträgliche Prüfung dort keinen Mehrwert mehr bringt. */
+function istFerienVorbei(trip) {
+  if (!trip || !trip.bis) return false;
+  const today = new Date(new Date().toDateString());
+  return new Date(trip.bis) < today;
+}
+
 /** Bekannte Gruppen-Überbegriffe in der Reihenfolge des Excel-Masters
  *  (für die Gruppen-Auswahl im "Neues Merkmal"-Formular). */
 function bekannteMerkmalGruppen() {
@@ -2036,10 +2095,10 @@ function renderListTab(el, trip, key, icon, placeholder) {
     if (neuErfassungsTyp === "fix") {
       if (key === "packliste") {
         const katalog = ensureArtikelDatenbank();
-        katalog.push({ id: "art" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, bemerkung: "", merkmale: [] });
+        katalog.push({ id: "art" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, bemerkung: "", merkmale: [], check: "offen", spontan: true });
       } else if (key === "todo") {
         const vorlage = ensureTodoVorlage();
-        vorlage.push({ id: "tv" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, merkmale: [] });
+        vorlage.push({ id: "tv" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, merkmale: [], check: "offen", spontan: true });
       }
     }
 
@@ -2173,6 +2232,9 @@ function openTodoVorlageEditModal(entry, onSaved) {
     <p class="hint-small">Gilt für alle Ferien, auch künftige.</p>
     <label>Text<input type="text" id="vorlage-edit-text" class="field-emphasized" value="${escapeHtml(entry.text)}" /></label>
     <label>Kategorie<input type="text" id="vorlage-edit-kategorie" value="${escapeHtml(entry.kategorie || "Allgemein")}" /></label>
+    ${entry.spontan ? `<p class="hint-small" style="margin:0 0 4px"><i class="ti ti-sparkles"></i> Spontan über Packliste/Reisetag erfasst - bitte Angaben prüfen und danach "Check erledigt" setzen.</p>` : ""}
+    <label class="checkbox-inline"><input type="checkbox" id="vorlage-edit-check" ${!istCheckOffen(entry) ? "checked" : ""} /> <i class="ti ti-list-check"></i> Check erledigt (geprüft)</label>
+    ${entry.checkDatum ? `<p class="hint-small" style="margin:-6px 0 4px">Zuletzt geprüft am ${escapeHtml(formatCheckDatum(entry.checkDatum))}</p>` : ""}
     <div class="form-actions">
       <button type="button" id="vorlage-edit-save"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="vorlage-edit-cancel" class="secondary">Abbrechen</button>
@@ -2183,8 +2245,12 @@ function openTodoVorlageEditModal(entry, onSaved) {
   wrap.querySelector("#vorlage-edit-save").onclick = () => {
     const neuerText = wrap.querySelector("#vorlage-edit-text").value.trim();
     const neueKategorie = wrap.querySelector("#vorlage-edit-kategorie").value.trim();
+    const neuCheckV = wrap.querySelector("#vorlage-edit-check").checked ? "erledigt" : "offen";
+    const warSchonErledigtV = entry.check === "erledigt";
     entry.text = neuerText || entry.text;
     entry.kategorie = neueKategorie || "Allgemein";
+    entry.check = neuCheckV;
+    entry.checkDatum = neuCheckV === "erledigt" ? (warSchonErledigtV ? (entry.checkDatum || new Date().toISOString()) : new Date().toISOString()) : (entry.checkDatum || null);
     saveChange();
     closeModal();
     onSaved();
@@ -2394,6 +2460,26 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     typBadge.title = item.erfassungsTyp === "fix" ? "Fix - auch in der zentralen Vorlage" : "Einmalig - nur für diese Ferien";
     typBadge.innerHTML = `<i class="ti ti-hand-click"></i> ${item.erfassungsTyp === "fix" ? "Fix" : "Einmalig"}`;
     row.appendChild(typBadge);
+  }
+
+  if ((listKey === "packliste" || listKey === "todo") && !istFerienVorbei(trip)) {
+    const dbEntry = ensureVorlageFuerListKey(listKey).find((e) => e.text === item.text);
+    if (dbEntry) {
+      if (dbEntry.spontan) {
+        const spontanBadge = document.createElement("span");
+        spontanBadge.className = "spontan-badge";
+        spontanBadge.title = "Spontan über Packliste/Reisetag erfasst - noch nicht vollständig geprüft";
+        spontanBadge.innerHTML = `<i class="ti ti-sparkles"></i> Spontan`;
+        row.appendChild(spontanBadge);
+      }
+      if (istCheckOffen(dbEntry)) {
+        const checkBadge = document.createElement("span");
+        checkBadge.className = "check-badge";
+        checkBadge.title = "Dieser Datenbank-Eintrag wurde noch nicht geprüft";
+        checkBadge.innerHTML = `<i class="ti ti-list-check"></i> Check offen`;
+        row.appendChild(checkBadge);
+      }
+    }
   }
 
   // Delete-Icon bewusst ganz am Zeilenende (nicht im vorderen Aktions-Cluster) -
@@ -2762,7 +2848,7 @@ function renderArtikelTab(el) {
 
         const textSpan = document.createElement("span");
         textSpan.style.flex = "1";
-        textSpan.innerHTML = `${alreadyOnPackliste ? `<span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i></span> ` : ""}${escapeHtml(a.text)}${kategorien.length > 1 ? ` <span class="hint-small" style="margin:0">(${kategorien.map(escapeHtml).join(", ")})</span>` : ""}${a.bemerkung ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-message-2"></i> ${escapeHtml(a.bemerkung)}</span>` : ""}`;
+        textSpan.innerHTML = `${alreadyOnPackliste ? `<span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i></span> ` : ""}${escapeHtml(a.text)}${kategorien.length > 1 ? ` <span class="hint-small" style="margin:0">(${kategorien.map(escapeHtml).join(", ")})</span>` : ""}${a.bemerkung ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-message-2"></i> ${escapeHtml(a.bemerkung)}</span>` : ""}${a.spontan ? ` <span class="spontan-badge" title="Spontan über Packliste/Reisetag erfasst - noch nicht vollständig geprüft"><i class="ti ti-sparkles"></i> Spontan</span>` : ""}${istCheckOffen(a) ? ` <span class="check-badge" title="Noch nicht geprüft"><i class="ti ti-list-check"></i> Check offen</span>` : ""}`;
         // Klick auf den Text öffnet direkt das Bearbeiten-Popup (kein
         // separates Bleistift-Icon mehr nötig, spart Platz in der Zeile).
         // Merkmale werden hier bewusst NICHT angezeigt (sprengt die Liste) -
@@ -3038,6 +3124,9 @@ function renderArtikelForm(katalog, onChange, prefill) {
   form.innerHTML = `
     <label>Artikel<input type="text" name="text" class="field-emphasized" value="${escapeHtml(a.text)}" required /></label>
     <label>Bemerkung (allgemein)<textarea name="bemerkung" class="field-emphasized" rows="2" placeholder="z. B. Ersatzlinsen, Linsenmittel, Linsenbehälter">${escapeHtml(a.bemerkung || "")}</textarea></label>
+    ${a.spontan ? `<p class="hint-small" style="margin:0 0 4px"><i class="ti ti-sparkles"></i> Spontan über Packliste/Reisetag erfasst - bitte Angaben prüfen/ergänzen und danach "Check erledigt" setzen.</p>` : ""}
+    <label class="checkbox-inline"><input type="checkbox" id="artikel-edit-check" ${(isNew || !istCheckOffen(a)) ? "checked" : ""} /> <i class="ti ti-list-check"></i> Check erledigt (geprüft)</label>
+    ${a.checkDatum ? `<p class="hint-small" style="margin:-6px 0 4px">Zuletzt geprüft am ${escapeHtml(formatCheckDatum(a.checkDatum))}</p>` : ""}
     <details class="form-section-box" open>
       <summary>Kategorien (Mehrfachauswahl möglich)</summary>
       <div class="chip-row" id="artikel-kategorien-chiprow"></div>
@@ -3120,12 +3209,17 @@ function renderArtikelForm(katalog, onChange, prefill) {
     e.preventDefault();
     const fd = new FormData(form);
     const kategorien = [...selectedKategorien];
+    const checkInputEl = form.querySelector("#artikel-edit-check");
+    const neuCheck = checkInputEl && checkInputEl.checked ? "erledigt" : "offen";
+    const warSchonErledigt = existing && existing.check === "erledigt";
     const values = {
       text: fd.get("text").trim(),
       kategorien,
       kategorie: kategorien[0] || "Allgemein",
       bemerkung: fd.get("bemerkung").trim(),
       merkmale: [...selectedMerkmale],
+      check: neuCheck,
+      checkDatum: neuCheck === "erledigt" ? (warSchonErledigt ? (existing.checkDatum || new Date().toISOString()) : new Date().toISOString()) : ((existing && existing.checkDatum) || null),
     };
     if (!values.text) return;
     if (isNew) {
