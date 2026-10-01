@@ -413,12 +413,13 @@ main#tab-content {
   text-transform: uppercase;
   letter-spacing: 0.03em;
   font-size: 10px !important;
-  color: var(--green) !important;
-  background: var(--green-light);
+  color: var(--grey) !important;
+  background: #eee;
   padding: 3px 9px;
   border-radius: 999px;
   margin: 0 0 6px !important;
 }
+[data-theme="dark"] .merkmale-gruppe-titel { background: #2a2d33 !important; color: #9aa0a6 !important; }
 
 .list-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 4px; }
 .list-toolbar select {
@@ -944,3 +945,5 @@ main#tab-content {
   accent-color: var(--amber-dark);
 }
 .field-form label.checkbox-inline i { color: var(--amber-dark); }
+.checkbox-inline-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+.checkbox-inline-row label.checkbox-inline { margin-bottom: 0; }
