@@ -1890,7 +1890,11 @@ function renderListTab(el, trip, key, icon, placeholder) {
         { value: "ueberfaellig", label: "Überfällig", icon: "ti-alarm" },
         { value: "alle", label: "Alle", icon: "ti-list" },
       ]
-    : [];
+    : [
+        { value: "offen", label: "Offene", icon: "ti-circle-dashed" },
+        { value: "prioritaet", label: "Prio", icon: "ti-flag" },
+        { value: "alle", label: "Alle", icon: "ti-list" },
+      ];
 
   el.innerHTML = `
     ${quickFilters.length ? `
