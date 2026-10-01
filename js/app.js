@@ -282,6 +282,18 @@ function itemVisible(item, trip) {
   return item.nurWenn.some((k) => trip.merkmale && trip.merkmale[k]);
 }
 
+/** Prüft, ob ein Datenbank-Artikel für die AKTUELLE Ferien tatsächlich
+ *  relevant/sichtbar auf der Packliste ist - nicht nur technisch als
+ *  Datensatz vorhanden. Die Packliste enthält intern alle Katalog-Artikel
+ *  (zwecks einfacher Merkmale-Umschaltung), aber nur die zu den gewählten
+ *  Merkmalen passenden sollen in Artikel-DB/Matrix als "auf Packliste"
+ *  gelten - sonst wären nach dem Anlegen einer Ferien sofort ALLE Artikel
+ *  als "schon drauf" markiert, egal welche Merkmale gewählt wurden. */
+function istAufAktuellerPackliste(a, trip) {
+  if (!trip) return false;
+  return trip.packliste.some((p) => p.text === a.text && itemVisible(p, trip) && !p.nichtRelevant);
+}
+
 /** Prüft, ob ein Packliste-/To-Do-Item zum aktuell gewählten Status-Filter
  *  passt. "offen" (Standardansicht) blendet sowohl erledigte als auch als
  *  "nicht relevant" markierte Punkte aus. */
@@ -323,10 +335,17 @@ function openModal(innerEl, onClose) {
   card.appendChild(innerEl);
   overlay.appendChild(card);
   document.body.appendChild(overlay);
+  // ESC schliesst das Popup wie ein Klick auf den X-Button
+  const escHandler = (e) => { if (e.key === "Escape") close(); };
+  document.addEventListener("keydown", escHandler);
+  overlay._escHandler = escHandler;
 }
 function closeModal() {
   const existing = document.getElementById("app-modal-overlay");
-  if (existing) existing.remove();
+  if (existing) {
+    if (existing._escHandler) document.removeEventListener("keydown", existing._escHandler);
+    existing.remove();
+  }
 }
 
 // ===========================================================
@@ -1635,6 +1654,16 @@ function ensureMerkmaleDefs() {
     saveChange();
   } else if (!data.merkmaleDefs || !data.merkmaleDefs.length) {
     data.merkmaleDefs = MERKMALE_DEFS.map((m) => ({ ...m }));
+  } else {
+    // Neue, im Code nachträglich hinzugefügte Standard-Merkmale (z. B.
+    // Frühling/Herbst) auch bei bestehenden, schon angepassten Daten
+    // ergänzen - bereits vorhandene/eigene Merkmale bleiben unangetastet.
+    const vorhandeneKeys = new Set(data.merkmaleDefs.map((m) => m.key));
+    const fehlende = MERKMALE_DEFS.filter((m) => !vorhandeneKeys.has(m.key));
+    if (fehlende.length) {
+      data.merkmaleDefs = [...data.merkmaleDefs, ...fehlende.map((m) => ({ ...m }))];
+      saveChange();
+    }
   }
   return data.merkmaleDefs;
 }
@@ -2477,7 +2506,7 @@ function renderArtikelTab(el) {
 
     const gefiltert = katalog.filter((a) => {
       if (artikelMatrixFilter === "alle" || !trip) return true;
-      const aufPackliste = trip.packliste.some((p) => p.text === a.text);
+      const aufPackliste = istAufAktuellerPackliste(a, trip);
       return artikelMatrixFilter === "aufPackliste" ? aufPackliste : !aufPackliste;
     });
     const sorted = [...gefiltert].sort((a, b) => getArtikelKategorien(a).join(",").localeCompare(getArtikelKategorien(b).join(",")) || a.text.localeCompare(b.text, "de"));
@@ -2508,7 +2537,7 @@ function renderArtikelTab(el) {
       if (isCollapsed) return;
       g.items.forEach((a) => {
         const merkmaleLabels = (a.merkmale || []).map((k) => (getMerkmaleDefs().find((m) => m.key === k) || {}).label).filter(Boolean);
-        const alreadyOnPackliste = !!(trip && trip.packliste.some((p) => p.text === a.text));
+        const alreadyOnPackliste = istAufAktuellerPackliste(a, trip);
         const kategorien = getArtikelKategorien(a);
         const row = document.createElement("div");
         row.className = "item-row" + (alreadyOnPackliste ? " item-row-on-packliste" : "");
@@ -2650,7 +2679,7 @@ function renderArtikelMatrix(katalog, trip, onChange) {
 
   const gefiltert = katalog.filter((a) => {
     if (artikelMatrixFilter === "alle" || !trip) return true;
-    const aufPackliste = trip.packliste.some((p) => p.text === a.text);
+    const aufPackliste = istAufAktuellerPackliste(a, trip);
     return artikelMatrixFilter === "aufPackliste" ? aufPackliste : !aufPackliste;
   });
   const sorted = [...gefiltert].sort((a, b) => getArtikelKategorien(a).join(",").localeCompare(getArtikelKategorien(b).join(",")) || a.text.localeCompare(b.text, "de"));
@@ -2695,7 +2724,7 @@ function renderArtikelMatrix(katalog, trip, onChange) {
     if (isKatCollapsed) return;
 
     g.items.forEach((a) => {
-      const alreadyOnPackliste = !!(trip && trip.packliste.some((p) => p.text === a.text));
+      const alreadyOnPackliste = istAufAktuellerPackliste(a, trip);
       const row = document.createElement("tr");
       if (alreadyOnPackliste) row.className = "matrix-row-on-packliste";
       const nameCell = document.createElement("td");
