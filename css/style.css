@@ -350,6 +350,28 @@ main#tab-content {
 [data-theme="dark"] .erfassungstyp-badge { background: #2a2d33; color: #9aa0a6; }
 [data-theme="dark"] .erfassungstyp-badge.fix { background: #3a2e12; color: #e0b96a; }
 
+.check-badge {
+  font-size: 10px;
+  font-weight: 500;
+  color: #c62828;
+  background: #fdecea;
+  padding: 1px 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+[data-theme="dark"] .check-badge { background: #3a1f1f; color: #e38686; }
+
+.spontan-badge {
+  font-size: 10px;
+  font-weight: 500;
+  color: #1565c0;
+  background: #e3f2fd;
+  padding: 1px 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+[data-theme="dark"] .spontan-badge { background: #16263a; color: #7fb3e8; }
+
 .trip-list { list-style: none; margin: 0 0 10px; padding: 0; }
 .trip-list-item {
   display: flex;
