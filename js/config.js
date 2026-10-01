@@ -25,7 +25,7 @@ const APP_CONFIG = {
 // ===========================================================
 // VERSION (wird im Tab "Mehr" angezeigt)
 // ===========================================================
-const APP_VERSION = "0.18.0";
+const APP_VERSION = "0.19.0";
 const APP_BUILD_DATE = "2026-10-01";
 
 // ===========================================================
@@ -41,7 +41,8 @@ const APP_BUILD_DATE = "2026-10-01";
 // wie im Master, z. B. "🚗 Transport") und hat keine funktionale Wirkung.
 const MERKMALE_DEFS = [
   // 📅 Dauer
-  { key: "weekend", label: "Weekend", icon: "ti-calendar-event", gruppe: "📅 Dauer" },
+  { key: "eintag", label: "Ein Tag", icon: "ti-calendar-time", gruppe: "📅 Dauer" },
+  { key: "weekend", label: "Weekend/Kurztrip", icon: "ti-calendar-event", gruppe: "📅 Dauer" },
   { key: "woche", label: "Woche", icon: "ti-calendar", gruppe: "📅 Dauer" },
   { key: "lager", label: "Lager", icon: "ti-tent" , gruppe: "📅 Dauer" },
   // 🌍 Land
@@ -63,11 +64,10 @@ const MERKMALE_DEFS = [
   { key: "flugzeug", label: "Flugzeug", icon: "ti-plane", gruppe: "🚗 Transport" },
   { key: "zugoev", label: "Zug / ÖV", icon: "ti-train", gruppe: "🚗 Transport" },
   // ☀️ Jahreszeit
+  { key: "winter", label: "Winter", icon: "ti-snowflake", gruppe: "☀️ Jahreszeit" },
   { key: "fruehling", label: "Frühling", icon: "ti-flower", gruppe: "☀️ Jahreszeit" },
   { key: "sommer", label: "Sommer", icon: "ti-sun", gruppe: "☀️ Jahreszeit" },
   { key: "herbst", label: "Herbst", icon: "ti-leaf", gruppe: "☀️ Jahreszeit" },
-  { key: "winter", label: "Winter", icon: "ti-snowflake", gruppe: "☀️ Jahreszeit" },
-  { key: "wintersport", label: "Wintersport", icon: "ti-ski-jumping", gruppe: "☀️ Jahreszeit" },
   // 👪 Mitreisende
   { key: "mithund", label: "Mit Hund", icon: "ti-paw", gruppe: "👪 Mitreisende" },
   { key: "mitkindern", label: "Mit Kindern", icon: "ti-users", gruppe: "👪 Mitreisende" },
@@ -76,6 +76,7 @@ const MERKMALE_DEFS = [
   { key: "strand", label: "Strand", icon: "ti-beach", gruppe: "📍 Ort/Aktivität" },
   { key: "wandern", label: "Wandern", icon: "ti-mountain", gruppe: "📍 Ort/Aktivität" },
   { key: "stadt", label: "Stadt", icon: "ti-building-skyscraper", gruppe: "📍 Ort/Aktivität" },
+  { key: "wintersport", label: "Wintersport", icon: "ti-ski-jumping", gruppe: "📍 Ort/Aktivität" },
 ];
 
 // ===========================================================
