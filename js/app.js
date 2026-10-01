@@ -836,7 +836,7 @@ function reisetagItemRow(item, onChange, listKey) {
   // Zeile beim Umschalten nicht seitlich springt - antippen wirkt wie der
   // Prio-Button in den anderen Listen.
   const flag = document.createElement("i");
-  flag.className = "ti ti-flag-filled reisetag-priority-flag" + (item.prioritaet ? " active" : "");
+  flag.className = "ti ti-flag reisetag-priority-flag" + (item.prioritaet ? " active" : "");
   flag.title = item.prioritaet ? "Priorität entfernen" : "Als Priorität markieren";
   flag.onclick = () => {
     item.prioritaet = !item.prioritaet;
@@ -1753,12 +1753,16 @@ function migrateFehlerhafteMerkmalSchluessel() {
 // unsichtbar - vermutlich ungewollt viele Prio-Flags angesammelt haben).
 function einmaligAllePrioritaetenZuruecksetzen() {
   const data = getData();
-  if (data.prioResetV1) return;
+  // V2: erneuter einmaliger Reset, da sich durch den "ti-flag-filled"-Bug
+  // (ungueltige Icon-Klasse liess das Flaggen-Icon beim Markieren verschwinden)
+  // vermutlich weiterhin ungewollte Prio-Markierungen angesammelt haben.
+  if (data.prioResetV2) return;
   (data.ferien || []).forEach((trip) => {
     (trip.packliste || []).forEach((item) => { item.prioritaet = false; });
     (trip.todo || []).forEach((item) => { item.prioritaet = false; });
   });
   data.prioResetV1 = true;
+  data.prioResetV2 = true;
   saveChange();
 }
 
@@ -2127,6 +2131,7 @@ function openLokalBearbeitenModal(item, onChange) {
     <label>Text<input type="text" id="lokal-edit-text" class="field-emphasized" value="${escapeHtml(item.text)}" /></label>
     <label>Kategorie<input type="text" id="lokal-edit-kategorie" value="${escapeHtml(item.kategorie || "Allgemein")}" /></label>
     <label>Bemerkung (gilt nur für diese Ferien, optional)<textarea id="lokal-edit-bemerkung" class="field-emphasized" rows="2">${escapeHtml(item.bemerkung || "")}</textarea></label>
+    <label class="checkbox-inline"><input type="checkbox" id="lokal-edit-prioritaet" ${item.prioritaet ? "checked" : ""} /> <i class="ti ti-flag"></i> Priorität</label>
     <div class="form-actions">
       <button type="button" id="lokal-edit-save"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="lokal-edit-cancel" class="secondary">Abbrechen</button>
@@ -2138,9 +2143,11 @@ function openLokalBearbeitenModal(item, onChange) {
     const neuerText = wrap.querySelector("#lokal-edit-text").value.trim();
     const neueKategorie = wrap.querySelector("#lokal-edit-kategorie").value.trim();
     const neueBemerkung = wrap.querySelector("#lokal-edit-bemerkung").value.trim();
+    const neuePrioritaet = wrap.querySelector("#lokal-edit-prioritaet").checked;
     item.text = neuerText || item.text;
     item.kategorie = neueKategorie || "Allgemein";
     item.bemerkung = neueBemerkung;
+    item.prioritaet = neuePrioritaet;
     saveChange();
     closeModal();
     onChange();
@@ -2307,7 +2314,10 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
   const prioBtn = document.createElement("button");
   prioBtn.type = "button";
   prioBtn.className = "icon-btn priority-btn" + (item.prioritaet ? " active" : "");
-  prioBtn.innerHTML = `<i class="ti ${item.prioritaet ? "ti-flag-filled" : "ti-flag"}"></i>`;
+  // Hinweis: "ti-flag-filled" existiert in der eingebundenen tabler-icons-Version
+  // NICHT als Icon-Klasse - das liess das Icon beim Markieren (aktiver Zustand)
+  // unsichtbar werden. Daher immer dieselbe Icon-Form, Unterscheidung nur über Farbe.
+  prioBtn.innerHTML = `<i class="ti ti-flag"></i>`;
   prioBtn.title = item.prioritaet ? "Priorität entfernen" : "Als Priorität markieren";
   prioBtn.onclick = () => {
     item.prioritaet = !item.prioritaet;
