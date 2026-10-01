@@ -856,7 +856,7 @@ function reisetagItemRow(item, onChange, listKey) {
     if (inDb) {
       openLocalOderDbChoiceModal(item, onChange, listKey);
     } else {
-      openLokalBearbeitenModal(item, onChange);
+      openLokalBearbeitenModal(item, onChange, listKey);
     }
   };
   if (item.termin !== undefined && item.termin !== null && item.termin !== "") {
@@ -913,6 +913,25 @@ function renderReisetagQuickAddForm(trip, key, offset, onChange) {
     <input type="text" placeholder="${isTodo ? "Neues To-Do für diesen Tag ..." : "Neuer Artikel ..."}" required />
     <button type="submit"><i class="ti ti-plus"></i></button>
   `;
+  const katalogRtAdd = ensureVorlageFuerListKey(key);
+  const alleKategorienRtAdd = [...katalogRtAdd.map((k) => k.kategorie), ...(trip[key] || []).map((i) => i.kategorie)];
+  let neuKategorieRtAdd = alleKategorienRtAdd[0] || "Allgemein";
+  const kategorieChipsRt = document.createElement("div");
+  kategorieChipsRt.className = "chip-row";
+  kategorieChipsRt.style.marginTop = "6px";
+  wrap.appendChild(kategorieChipsRt);
+  function neuZeichnenKategorieRtAdd() {
+    renderKategorieChipsAuswahl(kategorieChipsRt, [...alleKategorienRtAdd, neuKategorieRtAdd], neuKategorieRtAdd, (kat) => {
+      neuKategorieRtAdd = kat;
+      neuZeichnenKategorieRtAdd();
+    });
+  }
+  neuZeichnenKategorieRtAdd();
+  const kategorieNeuRow = document.createElement("div");
+  kategorieNeuRow.className = "field-row";
+  kategorieNeuRow.style.marginTop = "4px";
+  kategorieNeuRow.innerHTML = `<input type="text" id="reisetag-add-kategorie-neu" placeholder="Neue Kategorie ..." style="flex:1" /><button type="button" id="reisetag-add-kategorie-add" class="secondary"><i class="ti ti-plus"></i></button>`;
+  wrap.appendChild(kategorieNeuRow);
   const chipRow = document.createElement("div");
   chipRow.className = "chip-row";
   chipRow.style.marginTop = "6px";
@@ -937,6 +956,14 @@ function renderReisetagQuickAddForm(trip, key, offset, onChange) {
   chipRow.appendChild(chipEinmalig);
   chipRow.appendChild(chipFix);
   wrap.appendChild(chipRow);
+  wrap.querySelector("#reisetag-add-kategorie-add").onclick = () => {
+    const input = wrap.querySelector("#reisetag-add-kategorie-neu");
+    const neu = input.value.trim();
+    if (!neu) return;
+    neuKategorieRtAdd = neu;
+    input.value = "";
+    neuZeichnenKategorieRtAdd();
+  };
 
   wrap.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -944,7 +971,7 @@ function renderReisetagQuickAddForm(trip, key, offset, onChange) {
     const text = input.value.trim();
     if (!text) return;
     const erfassungsTyp = reisetagNeuErfassungsTyp[key];
-    const kategorie = "Allgemein";
+    const kategorie = neuKategorieRtAdd || "Allgemein";
     const newItem = {
       id: "i" + Date.now() + Math.random().toString(36).slice(2, 6),
       text,
@@ -1636,6 +1663,7 @@ function createNewTrip() {
     kategorie: a.kategorie || "Allgemein",
     sort: i,
     ...(a.merkmale && a.merkmale.length ? { nurWenn: a.merkmale } : {}),
+    ...(a.prioritaet ? { prioritaet: true } : {}),
   }));
   const todo = ensureTodoVorlage().map((t, i) => ({
     id: "i" + Date.now() + Math.random().toString(36).slice(2, 6) + "t" + i,
@@ -1644,6 +1672,7 @@ function createNewTrip() {
     kategorie: t.kategorie || "Allgemein",
     sort: i,
     ...(t.merkmale && t.merkmale.length ? { nurWenn: t.merkmale } : {}),
+    ...(t.prioritaet ? { prioritaet: true } : {}),
   }));
 
   data.ferien.push({
@@ -1912,6 +1941,7 @@ function seedListFromKatalogIfEmpty(trip, key) {
       kategorie: a.kategorie || "Allgemein",
       sort: i,
       ...(a.merkmale && a.merkmale.length ? { nurWenn: a.merkmale } : {}),
+      ...(a.prioritaet ? { prioritaet: true } : {}),
     }));
     saveChange();
   } else if (key === "todo") {
@@ -1922,6 +1952,7 @@ function seedListFromKatalogIfEmpty(trip, key) {
       kategorie: t.kategorie || "Allgemein",
       sort: i,
       ...(t.merkmale && t.merkmale.length ? { nurWenn: t.merkmale } : {}),
+      ...(t.prioritaet ? { prioritaet: true } : {}),
     }));
     saveChange();
   }
@@ -1989,10 +2020,15 @@ function renderListTab(el, trip, key, icon, placeholder) {
     <div id="cat-container"></div>
     <form id="add-form" class="add-form">
       <input type="text" placeholder="${placeholder}" required />
-      ${mode === "kategorie" ? `<select id="cat-select"></select>` : ""}
       ${isTodo ? `<input type="number" id="termin-input" placeholder="Tage vor Abreise" title="Tage vor Abreise (z. B. -5, 0 = Abreisetag), optional" style="max-width:110px;" />` : ""}
       <button type="submit"><i class="ti ti-plus"></i></button>
     </form>
+    <p class="hint-small" style="margin:6px 0 2px">Kategorie für den neuen Eintrag:</p>
+    <div class="chip-row" id="add-form-kategorie-chips"></div>
+    <div class="field-row" style="margin-top:4px;">
+      <input type="text" id="add-form-kategorie-neu" placeholder="Neue Kategorie ..." style="flex:1" />
+      <button type="button" id="add-form-kategorie-add" class="secondary"><i class="ti ti-plus"></i></button>
+    </div>
     <div class="chip-row" id="erfassungstyp-row" style="margin-top:6px;">
       <button type="button" class="chip erfassungstyp-chip active" data-typ="einmalig"><i class="ti ti-bolt"></i>Einmalig</button>
       <button type="button" class="chip erfassungstyp-chip" data-typ="fix"><i class="ti ti-pin"></i>Fix (in Vorlage übernehmen)</button>
@@ -2037,21 +2073,25 @@ function renderListTab(el, trip, key, icon, placeholder) {
     renderListTab(el, trip, key, icon, placeholder);
   };
 
-  let catSelect = null;
-  if (mode === "kategorie") {
-    catSelect = document.getElementById("cat-select");
-    const allCats = groups.map((g) => g.name).length ? groups.map((g) => g.name) : ["Allgemein"];
-    allCats.forEach((c) => {
-      const opt = document.createElement("option");
-      opt.value = c;
-      opt.textContent = c;
-      catSelect.appendChild(opt);
+  let neuKategorieAdd = (groups.map((g) => g.name)[0]) || "Allgemein";
+  const katalogAdd = ensureVorlageFuerListKey(key);
+  const alleKategorienAdd = [...katalogAdd.map((k) => k.kategorie), ...groups.map((g) => g.name)];
+  const kategorieChipsAdd = document.getElementById("add-form-kategorie-chips");
+  function neuZeichnenKategorieAdd() {
+    renderKategorieChipsAuswahl(kategorieChipsAdd, [...alleKategorienAdd, neuKategorieAdd], neuKategorieAdd, (kat) => {
+      neuKategorieAdd = kat;
+      neuZeichnenKategorieAdd();
     });
-    const neuOpt = document.createElement("option");
-    neuOpt.value = "__neu__";
-    neuOpt.textContent = "+ neue Kategorie";
-    catSelect.appendChild(neuOpt);
   }
+  neuZeichnenKategorieAdd();
+  document.getElementById("add-form-kategorie-add").onclick = () => {
+    const input = document.getElementById("add-form-kategorie-neu");
+    const neu = input.value.trim();
+    if (!neu) return;
+    neuKategorieAdd = neu;
+    input.value = "";
+    neuZeichnenKategorieAdd();
+  };
 
   const catContainer = document.getElementById("cat-container");
   groups.forEach((g) => {
@@ -2064,13 +2104,7 @@ function renderListTab(el, trip, key, icon, placeholder) {
     const text = input.value.trim();
     if (!text) return;
 
-    let kategorie = "Allgemein";
-    if (catSelect) {
-      kategorie = catSelect.value;
-      if (kategorie === "__neu__") {
-        kategorie = prompt("Name der neuen Kategorie:") || "Allgemein";
-      }
-    }
+    const kategorie = neuKategorieAdd || "Allgemein";
 
     const newItem = {
       id: "i" + Date.now() + Math.random().toString(36).slice(2, 6),
@@ -2185,14 +2219,19 @@ function etappenLabel(trip, etappe) {
 // Echtes Popup-Formular (statt Browser-prompt()-Kette) zum lokalen
 // Bearbeiten eines Packliste-/To-Do-Eintrags - inkl. Bemerkung-Feld, das
 // bisher über die prompt()-Dialoge leicht zu übersehen war.
-function openLokalBearbeitenModal(item, onChange) {
+function openLokalBearbeitenModal(item, onChange, listKey) {
   const wrap = document.createElement("div");
   wrap.className = "field-form";
   wrap.innerHTML = `
     <h3><i class="ti ti-pencil"></i> Lokal bearbeiten</h3>
     <p class="hint-small">Gilt nur für diese Ferien.</p>
     <label>Text<input type="text" id="lokal-edit-text" class="field-emphasized" value="${escapeHtml(item.text)}" /></label>
-    <label>Kategorie<input type="text" id="lokal-edit-kategorie" value="${escapeHtml(item.kategorie || "Allgemein")}" /></label>
+    <label>Kategorie</label>
+    <div class="chip-row" id="lokal-edit-kategorie-chips"></div>
+    <div class="field-row">
+      <input type="text" id="lokal-edit-kategorie-neu" placeholder="Neue Kategorie ..." style="flex:1" />
+      <button type="button" id="lokal-edit-kategorie-add" class="secondary"><i class="ti ti-plus"></i></button>
+    </div>
     <label>Bemerkung (gilt nur für diese Ferien, optional)<textarea id="lokal-edit-bemerkung" class="field-emphasized" rows="2">${escapeHtml(item.bemerkung || "")}</textarea></label>
     <label class="checkbox-inline"><input type="checkbox" id="lokal-edit-prioritaet" ${item.prioritaet ? "checked" : ""} /> <i class="ti ti-flag"></i> Priorität</label>
     <div class="form-actions">
@@ -2201,14 +2240,34 @@ function openLokalBearbeitenModal(item, onChange) {
     </div>
   `;
   openModal(wrap, () => {});
+  let gewaehlteKategorieL = item.kategorie || "Allgemein";
+  const trip = getCurrentTrip();
+  const katalogL = listKey ? ensureVorlageFuerListKey(listKey) : [];
+  const ausListeL = (trip && listKey && trip[listKey]) ? trip[listKey].map((i) => i.kategorie) : [];
+  const alleKategorienL = [...katalogL.map((k) => k.kategorie), ...ausListeL];
+  const kategorieChipsContainerL = wrap.querySelector("#lokal-edit-kategorie-chips");
+  function neuZeichnenKategorieL() {
+    renderKategorieChipsAuswahl(kategorieChipsContainerL, [...alleKategorienL, gewaehlteKategorieL], gewaehlteKategorieL, (kat) => {
+      gewaehlteKategorieL = kat;
+      neuZeichnenKategorieL();
+    });
+  }
+  neuZeichnenKategorieL();
+  wrap.querySelector("#lokal-edit-kategorie-add").onclick = () => {
+    const input = wrap.querySelector("#lokal-edit-kategorie-neu");
+    const neu = input.value.trim();
+    if (!neu) return;
+    gewaehlteKategorieL = neu;
+    input.value = "";
+    neuZeichnenKategorieL();
+  };
   wrap.querySelector("#lokal-edit-cancel").onclick = () => closeModal();
   wrap.querySelector("#lokal-edit-save").onclick = () => {
     const neuerText = wrap.querySelector("#lokal-edit-text").value.trim();
-    const neueKategorie = wrap.querySelector("#lokal-edit-kategorie").value.trim();
     const neueBemerkung = wrap.querySelector("#lokal-edit-bemerkung").value.trim();
     const neuePrioritaet = wrap.querySelector("#lokal-edit-prioritaet").checked;
     item.text = neuerText || item.text;
-    item.kategorie = neueKategorie || "Allgemein";
+    item.kategorie = gewaehlteKategorieL || "Allgemein";
     item.bemerkung = neueBemerkung;
     item.prioritaet = neuePrioritaet;
     saveChange();
@@ -2221,6 +2280,26 @@ function ensureVorlageFuerListKey(listKey) {
   return listKey === "todo" ? ensureTodoVorlage() : ensureArtikelDatenbank();
 }
 
+/** Baut eine Kategorie-Chip-Auswahl (Single-Select) in "container": Chips für
+ *  alle bekannten Kategorien plus Eingabefeld für eine neue Kategorie. Ruft
+ *  bei jeder Auswahl onSelect(neueKategorie) auf - der Aufrufer hält den
+ *  aktuellen Wert selbst und ruft diese Funktion zum Neuzeichnen erneut auf. */
+function renderKategorieChipsAuswahl(container, alleKategorien, aktuelleKategorie, onSelect) {
+  container.innerHTML = "";
+  const chipRow = document.createElement("div");
+  chipRow.className = "chip-row";
+  const sortiert = [...new Set(alleKategorien.filter(Boolean))].sort((x, y) => x.localeCompare(y, "de"));
+  sortiert.forEach((kat) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip" + (kat === aktuelleKategorie ? " active" : "");
+    chip.innerHTML = `<i class="ti ${categoryIcon(kat)}"></i>${escapeHtml(kat)}`;
+    chip.onclick = () => onSelect(kat);
+    chipRow.appendChild(chip);
+  });
+  container.appendChild(chipRow);
+}
+
 // Leichtgewichtiges Popup zum Bearbeiten eines To-Do-Vorlage-Eintrags
 // (Text/Kategorie) - ein vollständiges To-Do-Formular analog zum
 // Artikel-Formular (mit Merkmalen/Bemerkung) ist als eigener Punkt geplant.
@@ -2231,9 +2310,17 @@ function openTodoVorlageEditModal(entry, onSaved) {
     <h3><i class="ti ti-database"></i> To-Do-Vorlage bearbeiten</h3>
     <p class="hint-small">Gilt für alle Ferien, auch künftige.</p>
     <label>Text<input type="text" id="vorlage-edit-text" class="field-emphasized" value="${escapeHtml(entry.text)}" /></label>
-    <label>Kategorie<input type="text" id="vorlage-edit-kategorie" value="${escapeHtml(entry.kategorie || "Allgemein")}" /></label>
+    <label>Kategorie</label>
+    <div class="chip-row" id="vorlage-edit-kategorie-chips"></div>
+    <div class="field-row">
+      <input type="text" id="vorlage-edit-kategorie-neu" placeholder="Neue Kategorie ..." style="flex:1" />
+      <button type="button" id="vorlage-edit-kategorie-add" class="secondary"><i class="ti ti-plus"></i></button>
+    </div>
     ${entry.spontan ? `<p class="hint-small" style="margin:0 0 4px"><i class="ti ti-sparkles"></i> Spontan über Packliste/Reisetag erfasst - bitte Angaben prüfen und danach "Check erledigt" setzen.</p>` : ""}
-    <label class="checkbox-inline"><input type="checkbox" id="vorlage-edit-check" ${!istCheckOffen(entry) ? "checked" : ""} /> <i class="ti ti-list-check"></i> Check erledigt (geprüft)</label>
+    <div class="checkbox-inline-row">
+      <label class="checkbox-inline"><input type="checkbox" id="vorlage-edit-check" ${!istCheckOffen(entry) ? "checked" : ""} /> <i class="ti ti-list-check"></i> Check erledigt (geprüft)</label>
+      <label class="checkbox-inline"><input type="checkbox" id="vorlage-edit-prioritaet" ${entry.prioritaet ? "checked" : ""} /> <i class="ti ti-flag"></i> Priorität (Standard)</label>
+    </div>
     ${entry.checkDatum ? `<p class="hint-small" style="margin:-6px 0 4px">Zuletzt geprüft am ${escapeHtml(formatCheckDatum(entry.checkDatum))}</p>` : ""}
     <div class="form-actions">
       <button type="button" id="vorlage-edit-save"><i class="ti ti-check"></i> Speichern</button>
@@ -2241,15 +2328,34 @@ function openTodoVorlageEditModal(entry, onSaved) {
     </div>
   `;
   openModal(wrap, () => {});
+  let gewaehlteKategorieV = entry.kategorie || "Allgemein";
+  const alleKategorienV = ensureTodoVorlage().map((e) => e.kategorie);
+  const kategorieChipsContainerV = wrap.querySelector("#vorlage-edit-kategorie-chips");
+  function neuZeichnenKategorieV() {
+    renderKategorieChipsAuswahl(kategorieChipsContainerV, [...alleKategorienV, gewaehlteKategorieV], gewaehlteKategorieV, (kat) => {
+      gewaehlteKategorieV = kat;
+      neuZeichnenKategorieV();
+    });
+  }
+  neuZeichnenKategorieV();
+  wrap.querySelector("#vorlage-edit-kategorie-add").onclick = () => {
+    const input = wrap.querySelector("#vorlage-edit-kategorie-neu");
+    const neu = input.value.trim();
+    if (!neu) return;
+    gewaehlteKategorieV = neu;
+    input.value = "";
+    neuZeichnenKategorieV();
+  };
   wrap.querySelector("#vorlage-edit-cancel").onclick = () => closeModal();
   wrap.querySelector("#vorlage-edit-save").onclick = () => {
     const neuerText = wrap.querySelector("#vorlage-edit-text").value.trim();
-    const neueKategorie = wrap.querySelector("#vorlage-edit-kategorie").value.trim();
     const neuCheckV = wrap.querySelector("#vorlage-edit-check").checked ? "erledigt" : "offen";
+    const neuPrioV = wrap.querySelector("#vorlage-edit-prioritaet").checked;
     const warSchonErledigtV = entry.check === "erledigt";
     entry.text = neuerText || entry.text;
-    entry.kategorie = neueKategorie || "Allgemein";
+    entry.kategorie = gewaehlteKategorieV || "Allgemein";
     entry.check = neuCheckV;
+    entry.prioritaet = neuPrioV;
     entry.checkDatum = neuCheckV === "erledigt" ? (warSchonErledigtV ? (entry.checkDatum || new Date().toISOString()) : new Date().toISOString()) : (entry.checkDatum || null);
     saveChange();
     closeModal();
@@ -2277,7 +2383,7 @@ function openLocalOderDbChoiceModal(item, onChange, listKey) {
   `;
   openModal(wrap, () => {});
   wrap.querySelector("#choice-lokal").onclick = () => {
-    openLokalBearbeitenModal(item, onChange);
+    openLokalBearbeitenModal(item, onChange, listKey);
   };
   wrap.querySelector("#choice-db").onclick = () => {
     closeModal();
@@ -2378,7 +2484,7 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
       openLocalOderDbChoiceModal(item, onChange, listKey);
       return;
     }
-    openLokalBearbeitenModal(item, onChange);
+    openLokalBearbeitenModal(item, onChange, listKey);
   }
 
   const prioBtn = document.createElement("button");
@@ -2815,6 +2921,7 @@ function renderArtikelTab(el) {
             kategorie: a.kategorie || kategorien[0] || "Allgemein",
             sort: trip.packliste.length,
             ...(a.merkmale && a.merkmale.length ? { nurWenn: a.merkmale } : {}),
+            ...(a.prioritaet ? { prioritaet: true } : {}),
           });
           saveChange();
           renderArtikelTab(el);
@@ -3083,6 +3190,7 @@ function renderArtikelMatrix(katalog, trip, onChange) {
             kategorie: a.kategorie || getArtikelKategorien(a)[0] || "Allgemein",
             sort: trip.packliste.length,
             ...(a.merkmale && a.merkmale.length ? { nurWenn: a.merkmale } : {}),
+            ...(a.prioritaet ? { prioritaet: true } : {}),
           });
           saveChange();
           onChange();
@@ -3125,7 +3233,10 @@ function renderArtikelForm(katalog, onChange, prefill) {
     <label>Artikel<input type="text" name="text" class="field-emphasized" value="${escapeHtml(a.text)}" required /></label>
     <label>Bemerkung (allgemein)<textarea name="bemerkung" class="field-emphasized" rows="2" placeholder="z. B. Ersatzlinsen, Linsenmittel, Linsenbehälter">${escapeHtml(a.bemerkung || "")}</textarea></label>
     ${a.spontan ? `<p class="hint-small" style="margin:0 0 4px"><i class="ti ti-sparkles"></i> Spontan über Packliste/Reisetag erfasst - bitte Angaben prüfen/ergänzen und danach "Check erledigt" setzen.</p>` : ""}
-    <label class="checkbox-inline"><input type="checkbox" id="artikel-edit-check" ${(isNew || !istCheckOffen(a)) ? "checked" : ""} /> <i class="ti ti-list-check"></i> Check erledigt (geprüft)</label>
+    <div class="checkbox-inline-row">
+      <label class="checkbox-inline"><input type="checkbox" id="artikel-edit-check" ${(isNew || !istCheckOffen(a)) ? "checked" : ""} /> <i class="ti ti-list-check"></i> Check erledigt (geprüft)</label>
+      <label class="checkbox-inline"><input type="checkbox" id="artikel-edit-prioritaet" ${a.prioritaet ? "checked" : ""} /> <i class="ti ti-flag"></i> Priorität (Standard)</label>
+    </div>
     ${a.checkDatum ? `<p class="hint-small" style="margin:-6px 0 4px">Zuletzt geprüft am ${escapeHtml(formatCheckDatum(a.checkDatum))}</p>` : ""}
     <details class="form-section-box" open>
       <summary>Kategorien (Mehrfachauswahl möglich)</summary>
@@ -3137,7 +3248,8 @@ function renderArtikelForm(katalog, onChange, prefill) {
     </details>
     <details class="form-section-box" open>
       <summary>Merkmale (optional) <span class="standard-badge${hatMerkmale ? " hidden" : ""}" id="artikel-standard-badge" title="Standard: Dieser Artikel hat keine Merkmale ausgewählt und kommt dadurch automatisch auf JEDE Packliste.">✓ Standard</span></summary>
-      <p class="hint-small" style="margin:0 0 4px">Für Standardartikel, die für alle gelten, müssen keine Merkmale ausgewählt werden - sie tragen oben automatisch das Label "Standard".</p>
+      <p class="hint-small" style="margin:0 0 4px">Für Standardartikel, die für alle gelten, müssen keine Merkmale ausgewählt werden - sie tragen oben automatisch das Label "Standard". Der Chip unten wählt das direkt an und leert dafür die übrigen Merkmale.</p>
+      <div class="chip-row" id="artikel-standard-chiprow" style="margin-bottom:10px"></div>
       <div id="artikel-merkmale-gruppen"></div>
     </details>
     <div class="form-actions">
@@ -3180,7 +3292,20 @@ function renderArtikelForm(katalog, onChange, prefill) {
   const standardBadge = form.querySelector("#artikel-standard-badge");
   const updateStandardBadge = () => {
     if (standardBadge) standardBadge.classList.toggle("hidden", selectedMerkmale.size > 0);
+    if (standardChip) standardChip.classList.toggle("active", selectedMerkmale.size === 0);
   };
+  const standardChipRow = form.querySelector("#artikel-standard-chiprow");
+  const standardChip = document.createElement("button");
+  standardChip.type = "button";
+  standardChip.className = "chip standard-chip" + (selectedMerkmale.size === 0 ? " active" : "");
+  standardChip.innerHTML = `<i class="ti ti-star"></i> Standard (alle Merkmale)`;
+  standardChip.title = "Kein Merkmal ausgewählt: Artikel erscheint automatisch auf JEDER Packliste.";
+  standardChip.onclick = () => {
+    selectedMerkmale.clear();
+    gruppenContainer.querySelectorAll(".chip.active").forEach((c) => c.classList.remove("active"));
+    updateStandardBadge();
+  };
+  standardChipRow.appendChild(standardChip);
   const gruppenContainer = form.querySelector("#artikel-merkmale-gruppen");
   groupMerkmale(getMerkmaleDefs()).forEach((g) => {
     const wrap = document.createElement("div");
@@ -3212,6 +3337,7 @@ function renderArtikelForm(katalog, onChange, prefill) {
     const checkInputEl = form.querySelector("#artikel-edit-check");
     const neuCheck = checkInputEl && checkInputEl.checked ? "erledigt" : "offen";
     const warSchonErledigt = existing && existing.check === "erledigt";
+    const prioInputEl = form.querySelector("#artikel-edit-prioritaet");
     const values = {
       text: fd.get("text").trim(),
       kategorien,
@@ -3220,6 +3346,7 @@ function renderArtikelForm(katalog, onChange, prefill) {
       merkmale: [...selectedMerkmale],
       check: neuCheck,
       checkDatum: neuCheck === "erledigt" ? (warSchonErledigt ? (existing.checkDatum || new Date().toISOString()) : new Date().toISOString()) : ((existing && existing.checkDatum) || null),
+      prioritaet: !!(prioInputEl && prioInputEl.checked),
     };
     if (!values.text) return;
     if (isNew) {
