@@ -155,6 +155,7 @@ async function main() {
   document.getElementById("app-screen").classList.remove("hidden");
 
   ensureMerkmaleDefs();
+  migrateFehlerhafteMerkmalSchluessel();
   initScrollTopButton();
 
   const data = getData();
@@ -1669,6 +1670,66 @@ function ensureMerkmaleDefs() {
     }
   }
   return data.merkmaleDefs;
+}
+
+// Korrigiert fehlerhafte Merkmal-Schlüssel, die in früheren Versionen der
+// Standard-Artikel-/To-Do-Vorlagen fälschlich verwendet wurden (z. B. "kinder"
+// statt "mitkindern") und dadurch in echten Trip-/Katalogdaten "hängen
+// geblieben" sind. Ohne diese Migration blieben betroffene Artikel (u. a.
+// die ganze Kinder- und Hund-Kategorie) dauerhaft unsichtbar, da der
+// jeweilige Schlüssel nie mit einem echten, auswählbaren Merkmal übereinstimmt.
+function migrateFehlerhafteMerkmalSchluessel() {
+  const data = getData();
+  if (data.merkmalSchluesselFixV1) return;
+
+  const mapping = {
+    kinder: "mitkindern",
+    baby: "mitbabykleinkind",
+    haustier: "mithund",
+    flug: "flugzeug",
+    wasser: "strand",
+  };
+
+  function fixListe(liste) {
+    if (!Array.isArray(liste)) return false;
+    let changed = false;
+    liste.forEach((item) => {
+      if (Array.isArray(item.merkmale)) {
+        const neu = item.merkmale.map((k) => mapping[k] || k);
+        if (neu.some((k, i) => k !== item.merkmale[i])) {
+          item.merkmale = neu;
+          changed = true;
+        }
+      }
+    });
+    return changed;
+  }
+
+  function fixNurWenn(liste) {
+    if (!Array.isArray(liste)) return false;
+    let changed = false;
+    liste.forEach((item) => {
+      if (Array.isArray(item.nurWenn)) {
+        const neu = item.nurWenn.map((k) => mapping[k] || k);
+        if (neu.some((k, i) => k !== item.nurWenn[i])) {
+          item.nurWenn = neu;
+          changed = true;
+        }
+      }
+    });
+    return changed;
+  }
+
+  let changed = false;
+  if (fixListe(data.artikelDatenbank)) changed = true;
+  if (fixListe(data.todoVorlage)) changed = true;
+  (data.ferien || []).forEach((trip) => {
+    if (fixNurWenn(trip.packliste)) changed = true;
+    if (fixNurWenn(trip.todo)) changed = true;
+  });
+
+  data.merkmalSchluesselFixV1 = true;
+  saveChange();
 }
 
 /** Bekannte Gruppen-Überbegriffe in der Reihenfolge des Excel-Masters
