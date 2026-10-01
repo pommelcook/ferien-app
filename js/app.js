@@ -374,7 +374,10 @@ function initScrollTopButton() {
   const btn = document.getElementById("scroll-top-btn");
   if (!btn) return;
   const update = () => {
-    if (window.scrollY > 400) btn.classList.add("visible");
+    // Schwelle knapp über die Kopfzeile gesetzt, damit der Button schon
+    // erscheint, sobald der obere Bereich nicht mehr sichtbar ist - nicht
+    // erst nach langem Scrollen.
+    if (window.scrollY > 120) btn.classList.add("visible");
     else btn.classList.remove("visible");
   };
   window.addEventListener("scroll", update, { passive: true });
@@ -1799,6 +1802,7 @@ function renderListTab(el, trip, key, icon, placeholder) {
     <div class="quick-filter-row">
       ${quickFilters.map((f) => `<button type="button" class="quick-filter-btn${filterMode[key] === f.value ? " active" : ""}" data-filter="${f.value}"><i class="ti ${f.icon}"></i> ${f.label}</button>`).join("")}
     </div>` : ""}
+    <p class="hint-small" style="margin:4px 0">Total: ${relevant.length}</p>
     <div class="list-toolbar">
       <select id="filter-select" title="Status-Filter">
         <option value="offen"${filterMode[key] === "offen" ? " selected" : ""}>Offen</option>
@@ -1982,7 +1986,7 @@ function renderCategory(trip, listKey, groupName, groupItemsList, showTermin, on
 
   const header = document.createElement("button");
   header.className = "category-header";
-  header.innerHTML = `<span><i class="ti ${categoryIcon(groupName)} category-icon"></i> ${escapeHtml(groupName)}</span><i class="ti ti-chevron-${isCollapsed ? "right" : "down"}"></i>`;
+  header.innerHTML = `<span><i class="ti ${categoryIcon(groupName)} category-icon"></i> ${escapeHtml(groupName)} <span class="hint-small" style="margin:0">(${groupItemsList.length})</span></span><i class="ti ti-chevron-${isCollapsed ? "right" : "down"}"></i>`;
   header.onclick = () => {
     if (isCollapsed) collapsed.delete(collapseKey);
     else collapsed.add(collapseKey);
@@ -2044,8 +2048,11 @@ function openLocalOderDbChoiceModal(item, onChange) {
     if (neuerText === null) return;
     const neueKategorie = prompt("Kategorie:", item.kategorie || "Allgemein");
     if (neueKategorie === null) return;
+    const neueBemerkung = prompt("Bemerkung (gilt nur für diese Ferien, optional):", item.bemerkung || "");
+    if (neueBemerkung === null) return;
     item.text = neuerText.trim() || item.text;
     item.kategorie = neueKategorie.trim() || "Allgemein";
+    item.bemerkung = neueBemerkung.trim();
     saveChange();
     onChange();
   };
@@ -2149,8 +2156,11 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     if (neuerText === null) return;
     const neueKategorie = prompt("Kategorie:", item.kategorie || "Allgemein");
     if (neueKategorie === null) return;
+    const neueBemerkung = prompt("Bemerkung (gilt nur für diese Ferien, optional):", item.bemerkung || "");
+    if (neueBemerkung === null) return;
     item.text = neuerText.trim() || item.text;
     item.kategorie = neueKategorie.trim() || "Allgemein";
+    item.bemerkung = neueBemerkung.trim();
     saveChange();
     onChange();
   }
@@ -2208,22 +2218,6 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     actionCluster.appendChild(dbBtn);
   }
 
-  const deleteBtn = document.createElement("button");
-  deleteBtn.type = "button";
-  deleteBtn.className = "icon-btn danger";
-  deleteBtn.innerHTML = `<i class="ti ti-trash"></i>`;
-  deleteBtn.title = "Löschen";
-  deleteBtn.onclick = () => {
-    if (!confirm(`"${item.text}" wirklich löschen?`)) return;
-    const idx2 = siblingList.findIndex((i) => i.id === item.id);
-    if (idx2 !== -1) siblingList.splice(idx2, 1);
-    const trip2 = trip;
-    trip2[listKey] = trip2[listKey].filter((i) => i.id !== item.id);
-    saveChange();
-    onChange();
-  };
-  actionCluster.appendChild(deleteBtn);
-
   row.appendChild(actionCluster);
 
   if (showTermin && item.termin !== undefined && item.termin !== null && item.termin !== "") {
@@ -2235,10 +2229,10 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
 
   const label = document.createElement("span");
   label.className = "item-row-label";
-  label.textContent = item.text;
   label.style.flex = "1";
   label.title = "Antippen zum Bearbeiten";
   label.onclick = openEditForItem;
+  label.innerHTML = `${escapeHtml(item.text)}${item.bemerkung ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-message-2"></i> ${escapeHtml(item.bemerkung)}</span>` : ""}`;
   row.appendChild(label);
 
   if (item.erfassungsTyp === "einmalig" || item.erfassungsTyp === "fix") {
@@ -2248,6 +2242,25 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     typBadge.innerHTML = `<i class="ti ti-hand-click"></i> ${item.erfassungsTyp === "fix" ? "Fix" : "Einmalig"}`;
     row.appendChild(typBadge);
   }
+
+  // Delete-Icon bewusst ganz am Zeilenende (nicht im vorderen Aktions-Cluster) -
+  // damit es beim schnellen Antippen der anderen Icons nicht aus Versehen
+  // getroffen wird; ein Löschen ist unumkehrbar, die anderen Icons nicht.
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "icon-btn danger item-row-delete";
+  deleteBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+  deleteBtn.title = "Löschen";
+  deleteBtn.onclick = () => {
+    if (!confirm(`"${item.text}" wirklich löschen?`)) return;
+    const idx2 = siblingList.findIndex((i) => i.id === item.id);
+    if (idx2 !== -1) siblingList.splice(idx2, 1);
+    const trip2 = trip;
+    trip2[listKey] = trip2[listKey].filter((i) => i.id !== item.id);
+    saveChange();
+    onChange();
+  };
+  row.appendChild(deleteBtn);
 
   return row;
 }
@@ -2449,7 +2462,7 @@ function renderArtikelTab(el) {
   el.innerHTML = `
     <section class="panel">
       <div class="panel-header-row">
-        <h2><i class="ti ti-list-details"></i> Artikel-Datenbank</h2>
+        <h2><i class="ti ti-list-details"></i> Artikel-Datenbank <span class="hint-small" style="margin:0">(${katalog.length})</span></h2>
         <div class="chip-row">
           <button type="button" class="chip view-toggle-chip${artikelViewMode === "liste" ? " active" : ""}" data-mode="liste"><i class="ti ti-list"></i>Liste</button>
           <button type="button" class="chip view-toggle-chip${artikelViewMode === "matrix" ? " active" : ""}" data-mode="matrix"><i class="ti ti-table"></i>Matrix</button>
@@ -2543,7 +2556,7 @@ function renderArtikelTab(el) {
         row.className = "item-row" + (alreadyOnPackliste ? " item-row-on-packliste" : "");
         const textSpan = document.createElement("span");
         textSpan.style.flex = "1";
-        textSpan.innerHTML = `${escapeHtml(a.text)}${kategorien.length > 1 ? ` <span class="hint-small" style="margin:0">(${kategorien.map(escapeHtml).join(", ")})</span>` : ""}${alreadyOnPackliste ? ` <span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i> auf Packliste</span>` : ""}${merkmaleLabels.length ? `<br /><span class="hint-small" style="margin:0">${merkmaleLabels.map(escapeHtml).join(", ")}</span>` : ""}${a.bemerkung ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-message-2"></i> ${escapeHtml(a.bemerkung)}</span>` : ""}`;
+        textSpan.innerHTML = `${alreadyOnPackliste ? `<span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i></span> ` : ""}${escapeHtml(a.text)}${kategorien.length > 1 ? ` <span class="hint-small" style="margin:0">(${kategorien.map(escapeHtml).join(", ")})</span>` : ""}${merkmaleLabels.length ? `<br /><span class="hint-small" style="margin:0">${merkmaleLabels.map(escapeHtml).join(", ")}</span>` : ""}${a.bemerkung ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-message-2"></i> ${escapeHtml(a.bemerkung)}</span>` : ""}`;
         // Klick auf den Text öffnet direkt das Bearbeiten-Popup (kein
         // separates Bleistift-Icon mehr nötig, spart Platz in der Zeile).
         textSpan.onclick = () => { editingArtikelId = a.id; renderArtikelTab(el); };
@@ -2729,7 +2742,7 @@ function renderArtikelMatrix(katalog, trip, onChange) {
       if (alreadyOnPackliste) row.className = "matrix-row-on-packliste";
       const nameCell = document.createElement("td");
       nameCell.className = "matrix-artikel-col";
-      nameCell.innerHTML = `${escapeHtml(a.text)}${alreadyOnPackliste ? ` <span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i></span>` : ""}`;
+      nameCell.innerHTML = `${alreadyOnPackliste ? `<span class="on-packliste-badge" title="Bereits auf der Packliste von &quot;${escapeHtml(trip.titel)}&quot;"><i class="ti ti-checkbox"></i></span> ` : ""}${escapeHtml(a.text)}`;
       // Klick auf Artikel-Namen oder Bemerkung öffnet direkt das
       // Bearbeiten-Popup (kein separates Bleistift-Icon mehr nötig).
       nameCell.style.cursor = "pointer";
@@ -2823,6 +2836,7 @@ function renderArtikelForm(katalog, onChange, prefill) {
     </div>
     <label>Bemerkung (allgemein)<textarea name="bemerkung" rows="2" placeholder="z. B. Ersatzlinsen, Linsenmittel, Linsenbehälter">${escapeHtml(a.bemerkung || "")}</textarea></label>
     <label>Nur bei Merkmalen (optional)</label>
+    <p class="hint-small" style="margin:0 0 4px">Für Standardartikel, die für alle gelten, müssen keine Merkmale ausgewählt werden.</p>
     <div id="artikel-merkmale-gruppen"></div>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
