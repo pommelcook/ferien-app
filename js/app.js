@@ -84,10 +84,11 @@ const TAB_DEFS = {
   ratgeber: { icon: "ti-book-2", label: "Ratgeber" },
   rueckblick: { icon: "ti-camera", label: "Rückblick" },
   anleitung: { icon: "ti-help-circle", label: "Anleitung" },
+  notizen: { icon: "ti-notes", label: "Notizen" },
 };
 const FIXED_FIRST_TABS = ["start", "ferien"];
 const FIXED_LAST_TAB = "einstellungen";
-const DEFAULT_SORTABLE_TABS = ["reisetag", "packliste", "todo", "artikel", "programm", "finanzen", "stromladen", "merkmale", "ratgeber", "rueckblick", "anleitung"];
+const DEFAULT_SORTABLE_TABS = ["reisetag", "packliste", "todo", "artikel", "programm", "finanzen", "stromladen", "merkmale", "ratgeber", "rueckblick", "anleitung", "notizen"];
 
 /** Liefert die aktuell sortierbaren Kacheln (ohne start/ferien/einstellungen),
  *  in der vom Nutzer gewählten Reihenfolge. Neue, dem Nutzer noch unbekannte
@@ -420,6 +421,7 @@ function render() {
   if (currentTab === "ratgeber") return renderRatgeberTab(el);
   if (currentTab === "anleitung") return renderAnleitungTab(el);
   if (currentTab === "rueckblick") return renderRueckblickTab(el, trip);
+  if (currentTab === "notizen") return renderNotizenTab(el, trip);
 
   if (!trip) {
     el.innerHTML = `<p class="hint">Noch keine Ferien angelegt.<br />Wechsle zum Tab "Ferien", um eine anzulegen.</p>`;
@@ -2308,6 +2310,7 @@ function openTodoVorlageEditModal(entry, onSaved, linkedItem) {
     ${entry.checkDatum ? `<p class="hint-small" style="margin:-6px 0 4px">Zuletzt geprüft am ${escapeHtml(formatCheckDatum(entry.checkDatum))}</p>` : ""}
     <div class="form-actions">
       <button type="button" id="vorlage-edit-save"><i class="ti ti-check"></i> Speichern</button>
+      <button type="button" id="vorlage-edit-duplizieren" class="secondary"><i class="ti ti-copy"></i> Duplizieren</button>
       <button type="button" id="vorlage-edit-cancel" class="secondary">Abbrechen</button>
     </div>
   `;
@@ -2317,6 +2320,17 @@ function openTodoVorlageEditModal(entry, onSaved, linkedItem) {
   wrap.querySelector("#vorlage-edit-kategorie-field").innerHTML = kategorieDatalistHtml("vorlage-edit-kategorie-neu", alleKategorienV, gewaehlteKategorieVDefault);
   wireKategorieBadges("vorlage-edit-kategorie-neu", wrap);
   wrap.querySelector("#vorlage-edit-cancel").onclick = () => closeModal();
+  const dupBtnV = wrap.querySelector("#vorlage-edit-duplizieren");
+  if (dupBtnV) dupBtnV.onclick = () => {
+    const liste = ensureTodoVorlage();
+    const kopie = { ...entry, id: "tv" + Date.now() + Math.random().toString(36).slice(2, 6), text: entry.text + " (Kopie)" };
+    delete kopie.checkDatum;
+    kopie.check = "offen";
+    liste.push(kopie);
+    saveChange();
+    closeModal();
+    onSaved();
+  };
   const vorlageSaveHandler = () => {
     const neuerText = wrap.querySelector("#vorlage-edit-text").value.trim();
     const neuCheckV = wrap.querySelector("#vorlage-edit-check").checked ? "erledigt" : "offen";
@@ -2962,6 +2976,21 @@ function renderArtikelTab(el) {
         // die sieht man im Popup oder in der Matrix-Ansicht.
         textSpan.onclick = () => { editingArtikelId = a.id; renderArtikelTab(el); };
         row.appendChild(textSpan);
+
+        const dupBtn = document.createElement("button");
+        dupBtn.type = "button";
+        dupBtn.className = "icon-btn";
+        dupBtn.innerHTML = `<i class="ti ti-copy"></i>`;
+        dupBtn.title = "Duplizieren";
+        dupBtn.onclick = (e) => {
+          e.stopPropagation();
+          const data = getData();
+          const kopie = { ...a, id: "art" + Date.now() + Math.random().toString(36).slice(2, 6), text: a.text + " (Kopie)" };
+          data.artikelDatenbank.push(kopie);
+          saveChange();
+          renderArtikelTab(el);
+        };
+        row.appendChild(dupBtn);
 
         const delBtn = document.createElement("button");
         delBtn.type = "button";
@@ -3874,19 +3903,19 @@ function renderIdeeForm(trip, onChange) {
   const form = document.createElement("form");
   form.className = "field-form panel";
   form.innerHTML = `
-    <label>Idee<input type="text" name="idee" value="${escapeHtml(idee.idee)}" required /></label>
+    <label><span><i class="ti ti-bulb"></i> Idee</span><input type="text" name="idee" value="${escapeHtml(idee.idee)}" required /></label>
     ${(trip.etappen && trip.etappen.length) ? `
     <div>
       <label style="display:block;margin-bottom:4px;font-weight:600">Etappe(n) - einer, mehreren oder allen Destinationen zuweisen</label>
       <div class="chip-row" id="idee-etappen-chiprow"></div>
     </div>` : ""}
-    <label>Kategorie<input type="text" name="kategorie" value="${escapeHtml(idee.kategorie)}" placeholder="z. B. Ausflug, Restaurant, Baden ..." /></label>
-    <label>Ort<input type="text" name="ort" value="${escapeHtml(idee.ort)}" /></label>
-    <label>Google-Maps-Link<input type="url" name="googleMaps" value="${escapeHtml(idee.googleMaps)}" placeholder="https://maps.google.com/..." /></label>
-    <label>Fahrzeit<input type="text" name="fahrzeit" value="${escapeHtml(idee.fahrzeit)}" placeholder="z. B. 25 Min." /></label>
-    <label>Kosten ca.<input type="text" name="kosten" value="${escapeHtml(idee.kosten)}" /></label>
-    <label>Link<input type="url" name="link" value="${escapeHtml(idee.link)}" placeholder="https://..." /></label>
-    <label>Bemerkung<textarea name="bemerkung" rows="2">${escapeHtml(idee.bemerkung)}</textarea></label>
+    <label><span><i class="ti ti-tag"></i> Kategorie</span><input type="text" name="kategorie" value="${escapeHtml(idee.kategorie)}" placeholder="z. B. Ausflug, Restaurant, Baden ..." /></label>
+    <label><span><i class="ti ti-map-pin"></i> Ort</span><input type="text" name="ort" value="${escapeHtml(idee.ort)}" /></label>
+    <label><span><i class="ti ti-map"></i> Google-Maps-Link</span><input type="url" name="googleMaps" value="${escapeHtml(idee.googleMaps)}" placeholder="https://maps.google.com/..." /></label>
+    <label><span><i class="ti ti-clock"></i> Fahrzeit</span><input type="text" name="fahrzeit" value="${escapeHtml(idee.fahrzeit)}" placeholder="z. B. 25 Min." /></label>
+    <label><span><i class="ti ti-cash"></i> Kosten ca.</span><input type="text" name="kosten" value="${escapeHtml(idee.kosten)}" /></label>
+    <label><span><i class="ti ti-link"></i> Link</span><input type="url" name="link" value="${escapeHtml(idee.link)}" placeholder="https://..." /></label>
+    <label><span><i class="ti ti-message-2"></i> Bemerkung</span><textarea name="bemerkung" rows="2">${escapeHtml(idee.bemerkung)}</textarea></label>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="cancel-idee" class="secondary">Abbrechen</button>
@@ -4598,6 +4627,96 @@ function renderRueckblickTab(el, trip) {
   });
 
   el.appendChild(form);
+}
+
+// ===========================================================
+// TAB: NOTIZEN (spontane Notizen pro Ferien)
+// ===========================================================
+function ensureNotizen(trip) {
+  trip.notizen = trip.notizen || [];
+  return trip.notizen;
+}
+
+function renderNotizenTab(el, trip) {
+  if (!trip) {
+    el.innerHTML = `<p class="hint">Noch keine Ferien angelegt.</p>`;
+    return;
+  }
+  const notizen = ensureNotizen(trip);
+
+  el.innerHTML = `
+    <section class="panel">
+      <h2><i class="ti ti-notes"></i> Notizen - ${escapeHtml(trip.titel)}</h2>
+      <p class="hint-small">Für spontane Notizen während der Ferien. Mit dem Fahnen-Symbol markierte Notizen sollten nach den Ferien auf feste Übernahme in die App geprüft werden.</p>
+    </section>
+  `;
+
+  const listSection = document.createElement("section");
+  listSection.className = "panel";
+  const list = document.createElement("div");
+  list.id = "notizen-list";
+  if (!notizen.length) {
+    list.innerHTML = `<p class="hint-empty">Noch keine Notizen erfasst.</p>`;
+  }
+  notizen.slice().reverse().forEach((n) => {
+    const row = document.createElement("div");
+    row.className = "item-row";
+    const textSpan = document.createElement("span");
+    textSpan.style.flex = "1";
+    textSpan.innerHTML = `${escapeHtml(n.text)}${n.pruefen ? ` <span class="spontan-badge" title="Nach den Ferien für die fixe Übernahme in die App prüfen"><i class="ti ti-flag"></i> Prüfen</span>` : ""}`;
+    textSpan.onclick = () => {
+      const neuerText = prompt("Notiz bearbeiten:", n.text);
+      if (neuerText === null) return;
+      n.text = neuerText.trim() || n.text;
+      saveChange();
+      renderNotizenTab(el, trip);
+    };
+    row.appendChild(textSpan);
+
+    const flagBtn = document.createElement("button");
+    flagBtn.type = "button";
+    flagBtn.className = "icon-btn";
+    flagBtn.style.color = n.pruefen ? "var(--amber-dark)" : "";
+    flagBtn.innerHTML = `<i class="ti ti-flag"></i>`;
+    flagBtn.title = "Nach den Ferien für die fixe Übernahme in die App prüfen";
+    flagBtn.onclick = (e) => {
+      e.stopPropagation();
+      n.pruefen = !n.pruefen;
+      saveChange();
+      renderNotizenTab(el, trip);
+    };
+    row.appendChild(flagBtn);
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "icon-btn danger";
+    delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
+    delBtn.title = "Löschen";
+    delBtn.onclick = (e) => {
+      e.stopPropagation();
+      trip.notizen = trip.notizen.filter((x) => x.id !== n.id);
+      saveChange();
+      renderNotizenTab(el, trip);
+    };
+    row.appendChild(delBtn);
+
+    list.appendChild(row);
+  });
+  listSection.appendChild(list);
+  el.appendChild(listSection);
+
+  const newBtn = document.createElement("button");
+  newBtn.id = "new-notiz-button";
+  newBtn.className = "secondary";
+  newBtn.innerHTML = `<i class="ti ti-plus"></i> Neue Notiz`;
+  newBtn.onclick = () => {
+    const text = prompt("Neue Notiz:");
+    if (!text || !text.trim()) return;
+    notizen.push({ id: "notiz" + Date.now() + Math.random().toString(36).slice(2, 6), text: text.trim(), pruefen: false });
+    saveChange();
+    renderNotizenTab(el, trip);
+  };
+  el.appendChild(newBtn);
 }
 
 // ===========================================================
