@@ -987,3 +987,72 @@ main#tab-content {
 .field-form label.checkbox-inline i { color: var(--amber-dark); }
 .checkbox-inline-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
 .checkbox-inline-row label.checkbox-inline { margin-bottom: 0; }
+
+/* ---- v0.27.0: Fixierte Erfassen-Leiste (Plus) ---- */
+.tab-add-bar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: white;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+.tab-add-bar.hidden { display: none; }
+.tab-add-title { font-weight: 700; font-size: 13px; color: var(--grey); display: inline-flex; align-items: center; gap: 6px; }
+.tab-add-spacer { flex: 1; }
+.tab-add-btn {
+  background: var(--green);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tab-add-info {
+  background: #fff8e1;
+  color: var(--amber-dark);
+  border: 1px solid var(--amber-dark);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---- v0.27.0: Gemeinsame Erfassungs-Box (Packliste, To-Do, Reisetag, Vorlage, Popup) ---- */
+.neuer-eintrag-box {
+  border: 2px solid var(--green);
+  border-radius: 12px;
+  background: rgba(46, 125, 50, 0.07);
+  padding: 10px 12px;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.neuer-eintrag-head { font-weight: 700; font-size: 13px; color: var(--green); display: flex; align-items: center; gap: 6px; }
+.ne-field { display: flex; flex-direction: column; gap: 3px; }
+.ne-field-title { font-size: 12px; font-weight: 700; color: var(--grey); display: inline-flex; align-items: center; gap: 4px; }
+.neuer-eintrag-box input[type="text"],
+.neuer-eintrag-box input[type="number"] {
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.ne-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ne-more { display: flex; flex-direction: column; gap: 8px; }
+.ne-more > summary { cursor: pointer; user-select: none; }
+.ne-more[open] > summary { margin-bottom: 8px; }
+.field-form .neuer-eintrag-box { border: none; background: transparent; padding: 0; margin-top: 0; }
