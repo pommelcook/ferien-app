@@ -1158,3 +1158,58 @@ main#tab-content {
   gap: 4px;
   white-space: nowrap;
 }
+
+/* ===== Finanzen (v0.29) ===== */
+.fin-top .fin-total { margin: 4px 0 8px; }
+.fin-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.fin-wrap { overflow-x: auto; }
+.fin-grid { min-width: 900px; }
+.fin-row { display: grid; grid-template-columns: 96px 130px minmax(120px,1.5fr) minmax(90px,1fr) 150px 100px 100px 120px 64px; gap: 4px; align-items: center; padding: 4px 2px; border-bottom: 1px solid #ddd; font-size: 13px; }
+.fin-row > div { min-width: 0; overflow-wrap: anywhere; }
+.fin-head { font-weight: 700; font-size: 12px; border-bottom: 2px solid #999; }
+.fin-c-betrag { font-weight: 600; text-align: right; }
+.fin-c-act { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
+.fin-done { opacity: .55; }
+.fin-ph > div { min-height: 24px; border-bottom: 1px dotted #bbb; }
+.fin-ph { opacity: .6; }
+.fin-entry { background: rgba(46,125,50,.07); border: 2px solid #2e7d32; border-radius: 6px; padding: 6px 4px; margin-top: 6px; }
+.fin-row input:not([type=checkbox]), .fin-row select { width: 100%; min-width: 0; box-sizing: border-box; padding: 4px; font-size: 13px; margin: 0; }
+.fin-entry .fin-c-betrag { text-align: left; }
+.fin-betrag-edit { display: flex; gap: 3px; }
+.fin-betrag-edit input { flex: 1 1 60%; }
+.fin-betrag-edit select { flex: 0 0 62px; width: 62px; }
+.fin-entry button[type=submit] { padding: 4px 10px; }
+.fin-split { border: 1px solid #bbb; border-radius: 6px; padding: 8px; margin: 8px 0; }
+.fin-split-title { font-weight: 700; margin-bottom: 4px; }
+.fin-split-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.fin-anteil-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+.fin-anteil-row select { flex: 1 1 40%; min-width: 0; }
+.fin-anteil-row input { flex: 1 1 30%; min-width: 0; }
+.fin-saldo-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #eee; }
+.fin-aus-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.fin-aus-form select, .fin-aus-form input { flex: 1 1 90px; min-width: 0; }
+.fin-details > summary { cursor: pointer; font-weight: 700; }
+.fin-details h4 { margin: 12px 0 4px; }
+.fin-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.fin-table th, .fin-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
+.fin-kurse label { display: block; margin-bottom: 6px; }
+@media (max-width: 640px) {
+  .fin-grid { min-width: 0; }
+  .fin-head, .fin-ph { display: none; }
+  .fin-data { grid-template-columns: auto 1fr auto; grid-template-areas: "datum kat betrag" "details details details" "wo wo von" "zahl teil act"; border: 1px solid #ccc; border-radius: 6px; padding: 6px; margin-bottom: 6px; }
+  .fin-data .fin-c-datum { grid-area: datum; font-weight: 600; }
+  .fin-data .fin-c-kat { grid-area: kat; opacity: .8; }
+  .fin-data .fin-c-betrag { grid-area: betrag; }
+  .fin-data .fin-c-details { grid-area: details; font-size: 14px; }
+  .fin-data .fin-c-wo { grid-area: wo; }
+  .fin-data .fin-c-von { grid-area: von; text-align: right; }
+  .fin-data .fin-c-zahl { grid-area: zahl; }
+  .fin-data .fin-c-teil { grid-area: teil; }
+  .fin-data .fin-c-act { grid-area: act; }
+  .fin-data .fin-c-wo:not(:empty)::before, .fin-data .fin-c-von:not(:empty)::before, .fin-data .fin-c-teil:not(:empty)::before { content: attr(data-l); opacity: .6; }
+  .fin-entry { grid-template-columns: 1fr 1fr; }
+  .fin-entry .fin-c-details, .fin-entry .fin-c-betrag, .fin-entry .fin-c-act { grid-column: 1 / -1; }
+  .fin-entry .fin-c-act { justify-content: stretch; }
+  .fin-entry .fin-c-act button { width: 100%; }
+  .fin-row input:not([type=checkbox]), .fin-row select { font-size: 16px; padding: 8px 6px; }
+}
