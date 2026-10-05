@@ -4017,8 +4017,9 @@ function finPersonen(trip) {
   return finUniq(l);
 }
 function finKategorien(trip) {
-  data.finKategorienEigen = data.finKategorienEigen || [];
-  return finUniq([...FIN_KATEGORIEN, ...data.finKategorienEigen, ...trip.finanzen.map((f) => f.kategorie)]);
+  const dd = getData();
+  dd.finKategorienEigen = dd.finKategorienEigen || [];
+  return finUniq([...FIN_KATEGORIEN, ...dd.finKategorienEigen, ...trip.finanzen.map((f) => f.kategorie)]);
 }
 function finWaehrungenListe(trip) {
   const l = FIN_WAEHRUNGEN.map((x) => x.slice());
@@ -4167,7 +4168,7 @@ function finSelect(name, options, value, opt) {
 function finKatSelect(trip, value, placeholder) {
   return finSelect("kategorie", finKategorien(trip), value, {
     placeholder, neuLabel: "+ Eigene Kategorie ...", neuPrompt: "Name der neuen Kategorie:",
-    onNew: (t) => { data.finKategorienEigen = data.finKategorienEigen || []; if (!data.finKategorienEigen.includes(t)) data.finKategorienEigen.push(t); saveChange(); },
+    onNew: (t) => { const dd = getData(); dd.finKategorienEigen = dd.finKategorienEigen || []; if (!dd.finKategorienEigen.includes(t)) dd.finKategorienEigen.push(t); saveChange(); },
   });
 }
 function finWaehrungSelect(trip, value) {
@@ -4268,6 +4269,9 @@ function finDataRow(trip, f, rerender) {
     <div class="fin-c-teil" data-l="Teilung: ">${teil}</div>
     <div class="fin-c-act"></div>
   `;
+  row.style.cursor = "pointer";
+  row.title = "Zum Bearbeiten anklicken";
+  row.onclick = (e) => { if (e.target.closest("input,button,select,a")) return; editingFinanzId = f.id; rerender(); };
   const act = row.querySelector(".fin-c-act");
   const cb = document.createElement("input");
   cb.type = "checkbox"; cb.checked = !!f.abgerechnet; cb.title = "Abgerechnet";
