@@ -3913,110 +3913,427 @@ function renderIdeeForm(trip, onChange) {
 }
 
 // ===========================================================
-// TAB: FINANZEN (Ausgaben pro Ferien)
+// TAB: FINANZEN (Ausgaben pro Ferien, Aufteilung, Abrechnung, Export)
+// Datenmodell Position: { id, datum, kategorie, details, wo, betrag, waehrung,
+//   zahlungsart, bezahltVon, anteile:[{person, betrag}], abgerechnet, notizen }
+// "anteile" = Beträge, die ANDERE Personen übernehmen; den Rest trägt der Zahler.
+// Trip: finAusgleiche[], finPersonen[], finWaehrungen[], finZahlarten[], finKurse{}, finHauptwaehrung
 // ===========================================================
 let editingFinanzId = null;
+let finAuswertungOffen = false;
+const FIN_FIX_PERSONEN = ["Benzo", "Marielle"];
+const FIN_WAEHRUNGEN = [["CHF", "CHF"], ["EUR", "EUR"], ["USD", "USD"], ["GBP", "GBP (Pfund Sterling)"]];
+const FIN_KATEGORIEN = ["Unterkunft", "Essen & Trinken", "Einkäufe", "Transport & Treibstoff", "Aktivitäten & Eintritte", "Gebühren (Maut, Parkplatz)", "Sonstiges"];
+const FIN_ZAHLARTEN = ["Bar", "Kreditkarte", "Maestro"];
 
-function renderFinanzenTab(el, trip) {
-  if (!trip) {
-    el.innerHTML = `
-      <p class="hint">Noch keine Ferien angelegt.</p>
-    `;
-    return;
-  }
+function finToday() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+}
+function finNum(x) {
+  const n = Number(String(x == null ? "" : x).replace(",", "."));
+  return isFinite(n) ? n : 0;
+}
+function finRound(n) { return Math.round(n * 100) / 100; }
+function finFmt(n) { return finRound(n).toFixed(2); }
+
+function finNormalize(trip) {
   trip.finanzen = trip.finanzen || [];
-
-  const sorted = [...trip.finanzen].sort((a, b) => (a.datum || "").localeCompare(b.datum || ""));
-  const totals = {};
-  sorted.forEach((f) => {
-    const w = f.waehrung || "CHF";
-    totals[w] = (totals[w] || 0) + (Number(f.betrag) || 0);
+  trip.finAusgleiche = trip.finAusgleiche || [];
+  trip.finPersonen = trip.finPersonen || [];
+  trip.finWaehrungen = trip.finWaehrungen || [];
+  trip.finZahlarten = trip.finZahlarten || [];
+  trip.finKurse = trip.finKurse || {};
+  trip.finHauptwaehrung = trip.finHauptwaehrung || "CHF";
+  trip.finanzen.forEach((f) => {
+    if (f.details === undefined) f.details = f.beschreibung || "";
+    if (!Array.isArray(f.anteile)) f.anteile = [];
+    if (f.abgerechnet === undefined) f.abgerechnet = false;
+    if (!f.waehrung) f.waehrung = "CHF";
   });
-
-  el.innerHTML = `
-    <section class="panel">
-      <h2><i class="ti ti-cash"></i> Finanzen - ${escapeHtml(trip.titel)}</h2>
-      ${Object.keys(totals).length ? `<p class="hint-small">Total: ${Object.entries(totals).map(([w, sum]) => `${sum.toFixed(2)} ${escapeHtml(w)}`).join(" · ")}</p>` : ""}
-    </section>
-  `;
-
-  const finSection = document.createElement("section");
-  finSection.className = "panel";
-  const finHeaderResult = collapsibleHeader("finanzen:liste", `Ausgaben (${sorted.length})`, () => renderFinanzenTab(el, trip));
-  finSection.appendChild(finHeaderResult.header);
-  const listDiv = document.createElement("div");
-  listDiv.id = "finanzen-list";
-  if (!finHeaderResult.isCollapsed) finSection.appendChild(listDiv);
-  const newFinBtn = document.createElement("button");
-  newFinBtn.id = "new-finanz-button";
-  newFinBtn.className = "secondary";
-  newFinBtn.innerHTML = `<i class="ti ti-plus"></i> Neue Ausgabe`;
-  finSection.appendChild(newFinBtn);
-  el.appendChild(finSection);
-
-  const formContainer = document.createElement("div");
-  formContainer.id = "finanzen-form-container";
-  el.appendChild(formContainer);
-
-  const list = document.getElementById("finanzen-list");
-  if (list && !sorted.length) {
-    list.innerHTML = `<p class="hint-empty">Noch keine Ausgaben erfasst.</p>`;
-  }
-  if (list) sorted.forEach((f) => {
-    const row = document.createElement("div");
-    row.className = "item-row";
-    row.innerHTML = `
-      <span style="flex:1">
-        ${f.datum ? `<span class="termin-badge">${formatDate(f.datum)}</span> ` : ""}<strong>${escapeHtml(f.beschreibung)}</strong> - ${Number(f.betrag || 0).toFixed(2)} ${escapeHtml(f.waehrung || "CHF")}
-        ${f.bezahltVon || f.kategorie ? `<br /><span class="hint-small" style="margin:0">${[f.kategorie, f.bezahltVon].filter(Boolean).map(escapeHtml).join(" · ")}</span>` : ""}
-      </span>
-    `;
-    const editBtn = document.createElement("button");
-    editBtn.type = "button";
-    editBtn.className = "icon-btn";
-    editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
-    editBtn.onclick = () => { editingFinanzId = f.id; renderFinanzenTab(el, trip); };
-    row.appendChild(editBtn);
-    const delBtn = document.createElement("button");
-    delBtn.type = "button";
-    delBtn.className = "icon-btn danger";
-    delBtn.innerHTML = `<i class="ti ti-trash"></i>`;
-    delBtn.onclick = () => {
-      if (!confirm(`Eintrag "${f.beschreibung}" wirklich löschen?`)) return;
-      trip.finanzen = trip.finanzen.filter((x) => x.id !== f.id);
-      saveChange();
-      renderFinanzenTab(el, trip);
-    };
-    row.appendChild(delBtn);
-    list.appendChild(row);
-  });
-
-  newFinBtn.onclick = () => { editingFinanzId = "__neu__"; renderFinanzenTab(el, trip); };
-
-  if (editingFinanzId) {
-    formContainer.appendChild(renderFinanzForm(trip, () => renderFinanzenTab(el, trip)));
-  }
+}
+function finUniq(arr) {
+  const seen = new Set();
+  return arr.filter((x) => x && !seen.has(x) && seen.add(x));
+}
+function finPersonen(trip) {
+  const l = [...FIN_FIX_PERSONEN, ...trip.finPersonen];
+  trip.finanzen.forEach((f) => { l.push(f.bezahltVon); (f.anteile || []).forEach((a) => l.push(a.person)); });
+  trip.finAusgleiche.forEach((a) => { l.push(a.von); l.push(a.an); });
+  return finUniq(l);
+}
+function finKategorien(trip) {
+  data.finKategorienEigen = data.finKategorienEigen || [];
+  return finUniq([...FIN_KATEGORIEN, ...data.finKategorienEigen, ...trip.finanzen.map((f) => f.kategorie)]);
+}
+function finWaehrungenListe(trip) {
+  const l = FIN_WAEHRUNGEN.map((x) => x.slice());
+  const known = new Set(l.map((x) => x[0]));
+  finUniq([...trip.finWaehrungen, ...trip.finanzen.map((f) => f.waehrung), trip.finHauptwaehrung]).forEach((w) => { if (!known.has(w)) l.push([w, w]); });
+  return l;
+}
+function finZahlartenListe(trip) {
+  return finUniq([...FIN_ZAHLARTEN, ...trip.finZahlarten, ...trip.finanzen.map((f) => f.zahlungsart)]);
 }
 
+/** Verteilung einer Position: { Person: Betrag }. Der Zahler trägt den Rest. */
+function finShareMap(f) {
+  const betrag = finNum(f.betrag);
+  const m = {};
+  let rest = betrag;
+  (f.anteile || []).forEach((a) => {
+    const b = finNum(a.betrag);
+    if (!a.person || a.person === f.bezahltVon || !b) return;
+    m[a.person] = (m[a.person] || 0) + b;
+    rest -= b;
+  });
+  if (f.bezahltVon) m[f.bezahltVon] = (m[f.bezahltVon] || 0) + rest;
+  return m;
+}
+
+function finBerechne(trip) {
+  const R = { gesamt: {}, kat: {}, bezahlt: {}, anteil: {}, net: {} };
+  const add = (o, w, k, v) => { o[w] = o[w] || {}; o[w][k] = (o[w][k] || 0) + v; };
+  trip.finanzen.forEach((f) => {
+    const w = f.waehrung || "CHF";
+    const b = finNum(f.betrag);
+    R.gesamt[w] = (R.gesamt[w] || 0) + b;
+    const k = f.kategorie || "Ohne Kategorie";
+    R.kat[k] = R.kat[k] || {};
+    R.kat[k][w] = (R.kat[k][w] || 0) + b;
+    if (f.bezahltVon) add(R.bezahlt, w, f.bezahltVon, b);
+    const sh = finShareMap(f);
+    Object.keys(sh).forEach((p) => add(R.anteil, w, p, sh[p]));
+    if (!f.abgerechnet && f.bezahltVon) {
+      Object.keys(sh).forEach((p) => {
+        if (p === f.bezahltVon) return;
+        add(R.net, w, f.bezahltVon, sh[p]);
+        add(R.net, w, p, -sh[p]);
+      });
+    }
+  });
+  trip.finAusgleiche.forEach((a) => {
+    if (a.abgerechnet) return;
+    const w = a.waehrung || "CHF";
+    const b = finNum(a.betrag);
+    add(R.net, w, a.von, b);
+    add(R.net, w, a.an, -b);
+  });
+  return R;
+}
+
+function finVorschlaege(net) {
+  const cr = [], de = [];
+  Object.keys(net || {}).forEach((p) => {
+    const v = finRound(net[p]);
+    if (v > 0.004) cr.push({ p, v });
+    else if (v < -0.004) de.push({ p, v: -v });
+  });
+  cr.sort((a, b) => b.v - a.v);
+  de.sort((a, b) => b.v - a.v);
+  const out = [];
+  let i = 0, j = 0;
+  while (i < cr.length && j < de.length) {
+    const x = Math.min(cr[i].v, de[j].v);
+    out.push({ von: de[j].p, an: cr[i].p, betrag: finRound(x) });
+    cr[i].v -= x; de[j].v -= x;
+    if (cr[i].v < 0.005) i++;
+    if (de[j].v < 0.005) j++;
+  }
+  return out;
+}
+
+function finKonv(sumsW, trip) {
+  const h = trip.finHauptwaehrung || "CHF";
+  let tot = 0, ok = true;
+  Object.keys(sumsW).forEach((w) => {
+    const v = sumsW[w];
+    if (!v) return;
+    if (w === h) tot += v;
+    else {
+      const k = finNum(trip.finKurse[w]);
+      if (k > 0) tot += v * k; else ok = false;
+    }
+  });
+  return ok ? tot : null;
+}
+function finSumStr(sumsW) {
+  const parts = Object.keys(sumsW || {}).filter((w) => Math.abs(sumsW[w]) > 0.004).map((w) => finFmt(sumsW[w]) + " " + escapeHtml(w));
+  return parts.length ? parts.join(" · ") : "–";
+}
+function finSumMitKonv(sumsW, trip) {
+  let s = finSumStr(sumsW);
+  const waehrungen = Object.keys(sumsW || {}).filter((w) => Math.abs(sumsW[w]) > 0.004);
+  if (waehrungen.length > 1 || (waehrungen.length === 1 && waehrungen[0] !== trip.finHauptwaehrung)) {
+    const k = finKonv(sumsW, trip);
+    if (k !== null) s += ` <span class="hint-small">(≈ ${finFmt(k)} ${escapeHtml(trip.finHauptwaehrung)})</span>`;
+  }
+  return s;
+}
+
+// ---------- kleine UI-Helfer ----------
+/** Auswahlfeld mit Eintrag "+ Neu ...", der per Eingabedialog einen eigenen Wert ergänzt. */
+function finSelect(name, options, value, opt) {
+  const sel = document.createElement("select");
+  sel.name = name;
+  const opts = options.slice();
+  const val = (x) => (Array.isArray(x) ? x[0] : x);
+  const txt = (x) => (Array.isArray(x) ? x[1] : x);
+  const fill = (v) => {
+    sel.innerHTML = "";
+    if (opt.placeholder) {
+      const o = document.createElement("option");
+      o.value = ""; o.textContent = opt.placeholder; sel.appendChild(o);
+    }
+    if (v && !opts.some((x) => val(x) === v)) opts.push(v);
+    opts.forEach((x) => {
+      const o = document.createElement("option");
+      o.value = val(x); o.textContent = txt(x); sel.appendChild(o);
+    });
+    if (opt.neuLabel) {
+      const o = document.createElement("option");
+      o.value = "__neu__"; o.textContent = opt.neuLabel; sel.appendChild(o);
+    }
+    sel.value = v || "";
+  };
+  fill(value);
+  let prev = sel.value;
+  sel.addEventListener("change", () => {
+    if (sel.value !== "__neu__") { prev = sel.value; return; }
+    let t = (prompt(opt.neuPrompt || "Neuer Eintrag:") || "").trim();
+    if (opt.upper) t = t.toUpperCase();
+    if (!t) { sel.value = prev; return; }
+    if (opt.onNew) opt.onNew(t);
+    fill(t);
+    prev = t;
+    sel.dispatchEvent(new Event("fin-neu"));
+  });
+  return sel;
+}
+function finKatSelect(trip, value, placeholder) {
+  return finSelect("kategorie", finKategorien(trip), value, {
+    placeholder, neuLabel: "+ Eigene Kategorie ...", neuPrompt: "Name der neuen Kategorie:",
+    onNew: (t) => { data.finKategorienEigen = data.finKategorienEigen || []; if (!data.finKategorienEigen.includes(t)) data.finKategorienEigen.push(t); saveChange(); },
+  });
+}
+function finWaehrungSelect(trip, value) {
+  return finSelect("waehrung", finWaehrungenListe(trip), value, {
+    neuLabel: "+ Andere ...", neuPrompt: "Währung (Kürzel, z. B. SEK, CZK, HRK):", upper: true,
+    onNew: (t) => { if (!trip.finWaehrungen.includes(t)) trip.finWaehrungen.push(t); saveChange(); },
+  });
+}
+function finZahlSelect(trip, value, placeholder) {
+  return finSelect("zahlungsart", finZahlartenListe(trip), value, {
+    placeholder, neuLabel: "+ Andere ...", neuPrompt: "Zahlungsart (z. B. Twint, Debit):",
+    onNew: (t) => { if (!trip.finZahlarten.includes(t)) trip.finZahlarten.push(t); saveChange(); },
+  });
+}
+function finPersonSelect(trip, name, value, placeholder, exclude) {
+  const list = finPersonen(trip).filter((p) => p !== exclude);
+  return finSelect(name, list, value, {
+    placeholder, neuLabel: "+ Neue Person ...", neuPrompt: "Name der Person:",
+    onNew: (t) => { if (!trip.finPersonen.includes(t) && !FIN_FIX_PERSONEN.includes(t)) trip.finPersonen.push(t); saveChange(); },
+  });
+}
+
+// ---------- Tab ----------
+function renderFinanzenTab(el, trip) {
+  if (!trip) {
+    el.innerHTML = `<p class="hint">Noch keine Ferien angelegt.</p>`;
+    return;
+  }
+  finNormalize(trip);
+  const rerender = () => renderFinanzenTab(el, trip);
+  const sorted = [...trip.finanzen].sort((a, b) => (a.datum || "").localeCompare(b.datum || ""));
+  const R = finBerechne(trip);
+
+  el.innerHTML = `
+    <section class="panel fin-top">
+      <h2><i class="ti ti-cash"></i> Finanzen - ${escapeHtml(trip.titel)}</h2>
+      <p class="fin-total"><strong>Total:</strong> ${finSumMitKonv(R.gesamt, trip)}</p>
+      <div class="fin-actions">
+        <button type="button" id="new-finanz-button" class="secondary"><i class="ti ti-plus"></i> Neue Ausgabe</button>
+        <button type="button" id="fin-export-csv" class="secondary"><i class="ti ti-file-type-csv"></i> CSV</button>
+        <button type="button" id="fin-export-xlsx" class="secondary"><i class="ti ti-file-spreadsheet"></i> Excel</button>
+      </div>
+    </section>
+    <div id="finanzen-form-container"></div>
+    <section class="panel">
+      <h3><i class="ti ti-table"></i> Ausgaben (${sorted.length})</h3>
+      <div class="fin-wrap"><div class="fin-grid" id="finanzen-list"></div></div>
+    </section>
+    <section class="panel" id="fin-saldo"></section>
+    <details class="panel fin-details" id="fin-auswertung" ${finAuswertungOffen ? "open" : ""}></details>
+  `;
+
+  el.querySelector("#new-finanz-button").onclick = () => { editingFinanzId = "__neu__"; rerender(); };
+  el.querySelector("#fin-export-csv").onclick = () => finExportCsv(trip);
+  el.querySelector("#fin-export-xlsx").onclick = () => finExportXlsx(trip);
+
+  const formContainer = el.querySelector("#finanzen-form-container");
+  if (editingFinanzId) {
+    const form = renderFinanzForm(trip, rerender);
+    formContainer.appendChild(form);
+    setTimeout(() => form.scrollIntoView({ behavior: "smooth", block: "nearest" }), 0);
+  }
+
+  // Tabelle: Kopf, Datenzeilen, Platzhalter, Erfassungszeile
+  const grid = el.querySelector("#finanzen-list");
+  const head = document.createElement("div");
+  head.className = "fin-row fin-head";
+  head.innerHTML = ["Datum", "Kategorie", "Details", "Wo", "Betrag", "Zahlungsart", "Bezahlt von", "Aufteilung", ""].map((h) => `<div>${h}</div>`).join("");
+  grid.appendChild(head);
+  sorted.forEach((f) => grid.appendChild(finDataRow(trip, f, rerender)));
+  if (!sorted.length) {
+    for (let i = 0; i < 3; i++) {
+      const ph = document.createElement("div");
+      ph.className = "fin-row fin-ph";
+      ph.innerHTML = "<div></div>".repeat(9);
+      grid.appendChild(ph);
+    }
+  }
+  grid.appendChild(finEntryRow(trip, rerender));
+
+  finRenderSaldo(el.querySelector("#fin-saldo"), trip, R, rerender);
+  finRenderAuswertung(el.querySelector("#fin-auswertung"), trip, R, rerender);
+}
+
+function finDataRow(trip, f, rerender) {
+  const row = document.createElement("div");
+  row.className = "fin-row fin-data" + (f.abgerechnet ? " fin-done" : "");
+  const shares = (f.anteile || []).filter((a) => a.person && finNum(a.betrag));
+  const teil = shares.map((a) => escapeHtml(a.person) + " " + finFmt(finNum(a.betrag))).join(", ");
+  row.innerHTML = `
+    <div class="fin-c-datum">${f.datum ? formatDate(f.datum) : ""}</div>
+    <div class="fin-c-kat">${escapeHtml(f.kategorie || "")}</div>
+    <div class="fin-c-details">${escapeHtml(f.details || "")}${f.notizen ? ` <i class="ti ti-notes" title="${escapeHtml(f.notizen)}"></i>` : ""}</div>
+    <div class="fin-c-wo" data-l="Wo: ">${escapeHtml(f.wo || "")}</div>
+    <div class="fin-c-betrag">${finFmt(finNum(f.betrag))} ${escapeHtml(f.waehrung || "CHF")}</div>
+    <div class="fin-c-zahl">${escapeHtml(f.zahlungsart || "")}</div>
+    <div class="fin-c-von" data-l="Von: ">${escapeHtml(f.bezahltVon || "")}</div>
+    <div class="fin-c-teil" data-l="Teilung: ">${teil}</div>
+    <div class="fin-c-act"></div>
+  `;
+  const act = row.querySelector(".fin-c-act");
+  const cb = document.createElement("input");
+  cb.type = "checkbox"; cb.checked = !!f.abgerechnet; cb.title = "Abgerechnet";
+  cb.onchange = () => { f.abgerechnet = cb.checked; saveChange(); rerender(); };
+  act.appendChild(cb);
+  const edit = document.createElement("button");
+  edit.type = "button"; edit.className = "icon-btn"; edit.title = "Bearbeiten";
+  edit.innerHTML = `<i class="ti ti-pencil"></i>`;
+  edit.onclick = () => { editingFinanzId = f.id; rerender(); };
+  act.appendChild(edit);
+  return row;
+}
+
+/** Erfassungszeile direkt in der Tabelle (am Handy: untereinander angeordnet). */
+function finEntryRow(trip, rerender) {
+  const last = trip.finanzen[trip.finanzen.length - 1] || {};
+  const row = document.createElement("form");
+  row.className = "fin-row fin-entry";
+  const cell = (cls, node) => {
+    const d = document.createElement("div");
+    d.className = cls;
+    d.appendChild(node);
+    row.appendChild(d);
+    return d;
+  };
+  const inp = (type, name, ph, val) => {
+    const i = document.createElement("input");
+    i.type = type; i.name = name; i.placeholder = ph || ""; if (val !== undefined) i.value = val;
+    return i;
+  };
+  cell("fin-c-datum", inp("date", "datum", "", last.datum || finToday()));
+  cell("fin-c-kat", finKatSelect(trip, "", "Kategorie ..."));
+  const det = inp("text", "details", "Details (neu erfassen)");
+  cell("fin-c-details", det);
+  cell("fin-c-wo", inp("text", "wo", "Wo"));
+  const bc = document.createElement("div");
+  bc.className = "fin-betrag-edit";
+  const bi = inp("number", "betrag", "Betrag"); bi.step = "0.01"; bi.inputMode = "decimal";
+  bc.appendChild(bi);
+  bc.appendChild(finWaehrungSelect(trip, last.waehrung || trip.finHauptwaehrung));
+  cell("fin-c-betrag", bc);
+  cell("fin-c-zahl", finZahlSelect(trip, last.zahlungsart || "", "Zahlungsart"));
+  cell("fin-c-von", finPersonSelect(trip, "bezahltVon", last.bezahltVon || "Benzo", "Bezahlt von", null));
+  const teil = document.createElement("select");
+  teil.name = "teilen";
+  teil.innerHTML = `<option value="">Nicht teilen</option><option value="halb">50 / 50</option><option value="detail">Details ...</option>`;
+  cell("fin-c-teil", teil);
+  const add = document.createElement("button");
+  add.type = "submit"; add.title = "Hinzufügen"; add.innerHTML = `<i class="ti ti-plus"></i>`;
+  cell("fin-c-act", add);
+
+  row.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const g = (n) => row.elements[n].value;
+    const betrag = finNum(g("betrag"));
+    if (!betrag) { bi.focus(); return; }
+    if (!g("details").trim() && !g("wo").trim()) { det.focus(); return; }
+    const pos = {
+      id: "fin" + Date.now() + Math.random().toString(36).slice(2, 6),
+      datum: g("datum"), kategorie: g("kategorie"), details: g("details").trim(), wo: g("wo").trim(),
+      betrag, waehrung: g("waehrung") || "CHF", zahlungsart: g("zahlungsart"), bezahltVon: g("bezahltVon"),
+      anteile: [], abgerechnet: false, notizen: "",
+    };
+    const t = g("teilen");
+    if (t === "halb" || t === "detail") {
+      const other = finPersonen(trip).find((p) => p !== pos.bezahltVon);
+      if (other) pos.anteile = [{ person: other, betrag: t === "halb" ? finRound(betrag / 2) : 0 }];
+    }
+    trip.finanzen.push(pos);
+    saveChange();
+    if (t === "detail") editingFinanzId = pos.id;
+    rerender();
+  });
+  return row;
+}
+
+function finOpenForm(trip, id, rerender) { editingFinanzId = id; rerender(); }
+
+/** Vollständiges Formular (neue Ausgabe / Bearbeiten) inkl. Aufteilung. */
 function renderFinanzForm(trip, onChange) {
   const isNew = editingFinanzId === "__neu__";
-  const existing = isNew ? null : trip.finanzen.find((f) => f.id === editingFinanzId);
-  const f = existing || { datum: "", beschreibung: "", betrag: "", waehrung: "CHF", kategorie: "", bezahltVon: "", notizen: "" };
+  const existing = isNew ? null : trip.finanzen.find((x) => x.id === editingFinanzId);
+  const last = trip.finanzen[trip.finanzen.length - 1] || {};
+  const f = existing || {
+    datum: finToday(), kategorie: "", details: "", wo: "", betrag: "", waehrung: last.waehrung || trip.finHauptwaehrung,
+    zahlungsart: last.zahlungsart || "", bezahltVon: last.bezahltVon || "Benzo", anteile: [], abgerechnet: false, notizen: "",
+  };
+  const anteile = (f.anteile || []).map((a) => ({ person: a.person, betrag: a.betrag }));
 
   const form = document.createElement("form");
-  form.className = "field-form panel";
+  form.className = "field-form panel fin-form";
   form.innerHTML = `
-    <label><span><i class="ti ti-file-description"></i> Beschreibung</span><input type="text" name="beschreibung" value="${escapeHtml(f.beschreibung)}" required /></label>
+    <h3><i class="ti ti-receipt"></i> ${existing ? "Ausgabe bearbeiten" : "Neue Ausgabe"}</h3>
     <div class="field-row">
-      <label><span><i class="ti ti-calendar"></i> Datum</span><input type="date" name="datum" value="${escapeHtml(f.datum)}" /></label>
-      <label><span><i class="ti ti-cash"></i> Betrag</span><input type="number" step="0.01" name="betrag" value="${escapeHtml(String(f.betrag))}" /></label>
-      <label><span><i class="ti ti-currency-dollar"></i> Währung</span><input type="text" name="waehrung" value="${escapeHtml(f.waehrung)}" style="max-width:70px" /></label>
+      <label><span><i class="ti ti-calendar"></i> Datum</span><input type="date" name="datum" value="${escapeHtml(f.datum || "")}" /></label>
+      <label class="fin-f-kat"><span><i class="ti ti-tag"></i> Kategorie</span></label>
+    </div>
+    <label><span><i class="ti ti-file-description"></i> Details</span><input type="text" name="details" value="${escapeHtml(f.details || "")}" /></label>
+    <label><span><i class="ti ti-building-store"></i> Wo</span><input type="text" name="wo" value="${escapeHtml(f.wo || "")}" placeholder="Restaurant, Laden, Campingplatz ..." /></label>
+    <div class="field-row">
+      <label><span><i class="ti ti-cash"></i> Betrag</span><input type="number" step="0.01" inputmode="decimal" name="betrag" value="${escapeHtml(String(f.betrag))}" required /></label>
+      <label class="fin-f-waehrung"><span><i class="ti ti-currency-dollar"></i> Währung</span></label>
     </div>
     <div class="field-row">
-      <label><span><i class="ti ti-tag"></i> Kategorie</span><input type="text" name="kategorie" value="${escapeHtml(f.kategorie)}" placeholder="z. B. Verpflegung" /></label>
-      <label><span><i class="ti ti-user"></i> Bezahlt von</span><input type="text" name="bezahltVon" value="${escapeHtml(f.bezahltVon)}" /></label>
+      <label class="fin-f-zahl"><span><i class="ti ti-credit-card"></i> Zahlungsart</span></label>
+      <label class="fin-f-von"><span><i class="ti ti-user"></i> Bezahlt von</span></label>
     </div>
-    <label><span><i class="ti ti-notes"></i> Notizen</span><textarea name="notizen" rows="2">${escapeHtml(f.notizen)}</textarea></label>
+    <div class="fin-split">
+      <div class="fin-split-title"><i class="ti ti-users"></i> Aufteilung <span class="hint-small">(Beträge, die andere Personen übernehmen - den Rest trägt der Zahler)</span></div>
+      <div id="fin-anteile"></div>
+      <div class="fin-split-btns">
+        <button type="button" class="secondary" id="fin-add-anteil"><i class="ti ti-user-plus"></i> Person</button>
+        <button type="button" class="secondary" id="fin-halb"><i class="ti ti-percentage-50"></i> 50 / 50</button>
+        <button type="button" class="secondary" id="fin-alles"><i class="ti ti-arrow-big-right"></i> Alles die andere Person</button>
+      </div>
+      <p class="hint-small" id="fin-rest"></p>
+    </div>
+    <label class="checkbox-label"><input type="checkbox" name="abgerechnet" ${f.abgerechnet ? "checked" : ""} /> <span><i class="ti ti-checks"></i> Abgerechnet</span></label>
+    <label><span><i class="ti ti-notes"></i> Notizen</span><textarea name="notizen" rows="2">${escapeHtml(f.notizen || "")}</textarea></label>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="cancel-finanz" class="secondary">Abbrechen</button>
@@ -4024,34 +4341,381 @@ function renderFinanzForm(trip, onChange) {
     </div>
   `;
 
+  const katSel = finKatSelect(trip, f.kategorie || "", "(keine)");
+  form.querySelector(".fin-f-kat").appendChild(katSel);
+  const wSel = finWaehrungSelect(trip, f.waehrung || "CHF");
+  form.querySelector(".fin-f-waehrung").appendChild(wSel);
+  const zSel = finZahlSelect(trip, f.zahlungsart || "", "(keine)");
+  form.querySelector(".fin-f-zahl").appendChild(zSel);
+  const vSel = finPersonSelect(trip, "bezahltVon", f.bezahltVon || "", "(niemand)", null);
+  form.querySelector(".fin-f-von").appendChild(vSel);
+
+  const betragInp = form.elements["betrag"];
+  const anteileDiv = form.querySelector("#fin-anteile");
+  const restP = form.querySelector("#fin-rest");
+  const updateRest = () => {
+    const sum = anteile.reduce((s, a) => s + (a.person ? finNum(a.betrag) : 0), 0);
+    const rest = finNum(betragInp.value) - sum;
+    restP.innerHTML = vSel.value
+      ? ` ${escapeHtml(vSel.value)} trägt selbst: <strong>${finFmt(rest)} ${escapeHtml(wSel.value)}</strong>${rest < -0.004 ? ' <span style="color:#b3261e">- Anteile höher als Betrag!</span>' : ""}`
+      : "Bitte „Bezahlt von“ wählen, damit Aufteilung und Saldo berechnet werden können.";
+  };
+  const drawAnteile = () => {
+    anteileDiv.innerHTML = "";
+    anteile.forEach((a, idx) => {
+      const r = document.createElement("div");
+      r.className = "fin-anteil-row";
+      const ps = finPersonSelect(trip, "p" + idx, a.person || "", "Person ...", vSel.value);
+      ps.onchange = () => { if (ps.value !== "__neu__") { a.person = ps.value; updateRest(); } };
+      ps.addEventListener("fin-neu", () => { a.person = ps.value; updateRest(); });
+      const bi = document.createElement("input");
+      bi.type = "number"; bi.step = "0.01"; bi.inputMode = "decimal"; bi.placeholder = "Anteil";
+      bi.value = a.betrag === "" || a.betrag === undefined ? "" : a.betrag;
+      bi.oninput = () => { a.betrag = bi.value; updateRest(); };
+      const del = document.createElement("button");
+      del.type = "button"; del.className = "icon-btn danger"; del.innerHTML = `<i class="ti ti-x"></i>`;
+      del.onclick = () => { anteile.splice(idx, 1); drawAnteile(); };
+      const cur = document.createElement("span");
+      cur.className = "hint-small"; cur.textContent = wSel.value;
+      r.append(ps, bi, cur, del);
+      anteileDiv.appendChild(r);
+    });
+    updateRest();
+  };
+  const andere = () => finPersonen(trip).find((p) => p !== vSel.value) || "";
+  form.querySelector("#fin-add-anteil").onclick = () => { anteile.push({ person: andere(), betrag: "" }); drawAnteile(); };
+  form.querySelector("#fin-halb").onclick = () => {
+    const p = andere();
+    anteile.length = 0;
+    anteile.push({ person: p, betrag: finRound(finNum(betragInp.value) / 2) });
+    drawAnteile();
+  };
+  form.querySelector("#fin-alles").onclick = () => {
+    anteile.length = 0;
+    anteile.push({ person: andere(), betrag: finRound(finNum(betragInp.value)) });
+    drawAnteile();
+  };
+  betragInp.oninput = updateRest;
+  wSel.addEventListener("change", drawAnteile);
+  vSel.addEventListener("change", () => {
+    anteile.forEach((a) => { if (a.person === vSel.value) a.person = ""; });
+    drawAnteile();
+  });
+  drawAnteile();
+
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const fd = new FormData(form);
-    const values = Object.fromEntries(fd.entries());
-    values.waehrung = (values.waehrung || "").trim() || "CHF";
-    if (isNew) {
-      trip.finanzen.push({ id: "fin" + Date.now() + Math.random().toString(36).slice(2, 6), ...values });
-    } else {
-      Object.assign(existing, values);
-    }
+    const values = {
+      datum: fd.get("datum") || "", kategorie: katSel.value, details: (fd.get("details") || "").trim(), wo: (fd.get("wo") || "").trim(),
+      betrag: finNum(fd.get("betrag")), waehrung: wSel.value || "CHF", zahlungsart: zSel.value, bezahltVon: vSel.value,
+      anteile: anteile.filter((a) => a.person && finNum(a.betrag)).map((a) => ({ person: a.person, betrag: finNum(a.betrag) })),
+      abgerechnet: form.elements["abgerechnet"].checked, notizen: (fd.get("notizen") || "").trim(),
+    };
+    if (isNew) trip.finanzen.push({ id: "fin" + Date.now() + Math.random().toString(36).slice(2, 6), ...values });
+    else Object.assign(existing, values);
     saveChange();
     editingFinanzId = null;
     onChange();
   });
-
   form.querySelector("#cancel-finanz").onclick = () => { editingFinanzId = null; onChange(); };
   const deleteBtn = form.querySelector("#delete-finanz");
   if (deleteBtn) {
     deleteBtn.onclick = () => {
-      if (!confirm(`Eintrag "${existing.beschreibung}" wirklich löschen?`)) return;
-      trip.finanzen = trip.finanzen.filter((x) => x.id !== existing.id);
+      const idx = trip.finanzen.findIndex((x) => x.id === existing.id);
+      const removed = trip.finanzen.splice(idx, 1)[0];
       saveChange();
       editingFinanzId = null;
       onChange();
+      showUndoToast("Ausgabe gelöscht", () => {
+        trip.finanzen.splice(Math.min(idx, trip.finanzen.length), 0, removed);
+        saveChange();
+        onChange();
+      });
     };
   }
-
   return form;
+}
+
+// ---------- Saldo / Abrechnung ----------
+function finRenderSaldo(sec, trip, R, rerender) {
+  const waehrungen = Object.keys(R.net).filter((w) => finVorschlaege(R.net[w]).length);
+  let html = `<h3><i class="ti ti-scale"></i> Abrechnung</h3>`;
+  if (!waehrungen.length) {
+    html += `<p class="hint-small">Keine offenen Beträge zwischen den Personen.</p>`;
+  } else {
+    waehrungen.forEach((w) => {
+      finVorschlaege(R.net[w]).forEach((v, i) => {
+        html += `<div class="fin-saldo-row"><span><strong>${escapeHtml(v.von)}</strong> schuldet <strong>${escapeHtml(v.an)}</strong> <strong>${finFmt(v.betrag)} ${escapeHtml(w)}</strong></span>
+          <button type="button" class="secondary fin-buchen" data-w="${escapeHtml(w)}" data-i="${i}"><i class="ti ti-check"></i> Als bezahlt buchen</button></div>`;
+      });
+    });
+  }
+  const offen = trip.finanzen.some((f) => !f.abgerechnet) || trip.finAusgleiche.some((a) => !a.abgerechnet);
+  html += `<div class="fin-actions">
+    ${offen ? `<button type="button" class="secondary" id="fin-alle-abrechnen"><i class="ti ti-checks"></i> Alles als abgerechnet markieren</button>` : ""}
+  </div>`;
+  html += `<details class="fin-aus"><summary><i class="ti ti-arrows-exchange"></i> Ausgleich erfassen / Ausgleichszahlungen (${trip.finAusgleiche.length})</summary><div id="fin-aus-body"></div></details>`;
+  sec.innerHTML = html;
+
+  sec.querySelectorAll(".fin-buchen").forEach((b) => {
+    b.onclick = () => {
+      const v = finVorschlaege(R.net[b.dataset.w])[Number(b.dataset.i)];
+      if (!v) return;
+      trip.finAusgleiche.push({ id: "aus" + Date.now(), datum: finToday(), von: v.von, an: v.an, betrag: v.betrag, waehrung: b.dataset.w, abgerechnet: false });
+      saveChange();
+      rerender();
+    };
+  });
+  const alle = sec.querySelector("#fin-alle-abrechnen");
+  if (alle) alle.onclick = () => {
+    if (!confirm("Alle Ausgaben und Ausgleichszahlungen als abgerechnet markieren? Der Saldo wird damit auf 0 gesetzt.")) return;
+    trip.finanzen.forEach((f) => { f.abgerechnet = true; });
+    trip.finAusgleiche.forEach((a) => { a.abgerechnet = true; });
+    saveChange();
+    rerender();
+  };
+
+  const body = sec.querySelector("#fin-aus-body");
+  trip.finAusgleiche.forEach((a) => {
+    const r = document.createElement("div");
+    r.className = "fin-saldo-row" + (a.abgerechnet ? " fin-done" : "");
+    r.innerHTML = `<span>${a.datum ? formatDate(a.datum) + " · " : ""}${escapeHtml(a.von)} → ${escapeHtml(a.an)}: <strong>${finFmt(finNum(a.betrag))} ${escapeHtml(a.waehrung || "CHF")}</strong></span>`;
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "icon-btn danger"; del.innerHTML = `<i class="ti ti-trash"></i>`;
+    del.onclick = () => {
+      const idx = trip.finAusgleiche.findIndex((x) => x.id === a.id);
+      const removed = trip.finAusgleiche.splice(idx, 1)[0];
+      saveChange();
+      rerender();
+      showUndoToast("Ausgleichszahlung gelöscht", () => { trip.finAusgleiche.splice(Math.min(idx, trip.finAusgleiche.length), 0, removed); saveChange(); rerender(); });
+    };
+    r.appendChild(del);
+    body.appendChild(r);
+  });
+  const form = document.createElement("form");
+  form.className = "fin-aus-form";
+  const personen = finPersonen(trip);
+  const von = finPersonSelect(trip, "von", personen[0] || "", "Von", null);
+  const an = finPersonSelect(trip, "an", personen[1] || "", "An", null);
+  const bi = document.createElement("input");
+  bi.type = "number"; bi.step = "0.01"; bi.name = "betrag"; bi.placeholder = "Betrag"; bi.inputMode = "decimal"; bi.required = true;
+  const ws = finWaehrungSelect(trip, trip.finHauptwaehrung);
+  const ok = document.createElement("button");
+  ok.type = "submit"; ok.innerHTML = `<i class="ti ti-plus"></i> Ausgleich buchen`;
+  form.append(von, an, bi, ws, ok);
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    if (!von.value || !an.value || von.value === an.value || !finNum(bi.value)) return;
+    trip.finAusgleiche.push({ id: "aus" + Date.now(), datum: finToday(), von: von.value, an: an.value, betrag: finNum(bi.value), waehrung: ws.value || "CHF", abgerechnet: false });
+    saveChange();
+    rerender();
+  };
+  body.appendChild(form);
+  const det = sec.querySelector(".fin-aus");
+  if (trip.finAusgleiche.length === 0) det.open = false;
+}
+
+// ---------- Auswertung (Personen, Kategorien, Wechselkurse) ----------
+function finRenderAuswertung(det, trip, R, rerender) {
+  det.addEventListener("toggle", () => { finAuswertungOffen = det.open; });
+  const personen = finPersonen(trip).filter((p) =>
+    Object.keys(R.bezahlt).some((w) => R.bezahlt[w][p]) || Object.keys(R.anteil).some((w) => R.anteil[w][p]));
+  const perW = (obj, p) => {
+    const m = {};
+    Object.keys(obj).forEach((w) => { if (obj[w][p]) m[w] = obj[w][p]; });
+    return m;
+  };
+  let html = `<summary><i class="ti ti-chart-pie"></i> Auswertung, Totale &amp; Wechselkurse</summary>`;
+  html += `<h4>Pro Person</h4>`;
+  if (!personen.length) html += `<p class="hint-small">Noch keine Daten.</p>`;
+  else {
+    html += `<div class="fin-wrap"><table class="fin-table"><thead><tr><th>Person</th><th>Hat bezahlt</th><th>Eigener Anteil</th><th>Saldo (offen)</th></tr></thead><tbody>`;
+    personen.forEach((p) => {
+      const saldo = {};
+      Object.keys(R.net).forEach((w) => { if (R.net[w][p] && Math.abs(R.net[w][p]) > 0.004) saldo[w] = R.net[w][p]; });
+      html += `<tr><td>${escapeHtml(p)}</td><td>${finSumMitKonv(perW(R.bezahlt, p), trip)}</td><td>${finSumMitKonv(perW(R.anteil, p), trip)}</td><td>${finSumStr(saldo)}</td></tr>`;
+    });
+    html += `</tbody></table></div><p class="hint-small">Saldo: positiv = bekommt noch Geld, negativ = schuldet noch Geld.</p>`;
+  }
+  html += `<h4>Pro Kategorie</h4>`;
+  const kats = Object.keys(R.kat).sort();
+  if (!kats.length) html += `<p class="hint-small">Noch keine Daten.</p>`;
+  else {
+    html += `<div class="fin-wrap"><table class="fin-table"><tbody>`;
+    kats.forEach((k) => { html += `<tr><td>${escapeHtml(k)}</td><td>${finSumMitKonv(R.kat[k], trip)}</td></tr>`; });
+    html += `</tbody></table></div>`;
+  }
+  html += `<h4>Wechselkurse</h4><div class="fin-kurse"></div>`;
+  det.innerHTML = html;
+
+  const box = det.querySelector(".fin-kurse");
+  const hauptWrap = document.createElement("label");
+  hauptWrap.innerHTML = `<span><i class="ti ti-coin"></i> Hauptwährung für Totale</span>`;
+  const hs = finWaehrungSelect(trip, trip.finHauptwaehrung);
+  hs.addEventListener("change", () => { trip.finHauptwaehrung = hs.value || "CHF"; saveChange(); finAuswertungOffen = true; rerender(); });
+  hauptWrap.appendChild(hs);
+  box.appendChild(hauptWrap);
+  const verwendet = finUniq([...trip.finanzen.map((f) => f.waehrung), ...trip.finAusgleiche.map((a) => a.waehrung)]).filter((w) => w !== trip.finHauptwaehrung);
+  if (!verwendet.length) {
+    const p = document.createElement("p");
+    p.className = "hint-small"; p.textContent = "Es wird nur die Hauptwährung verwendet - keine Kurse nötig.";
+    box.appendChild(p);
+  }
+  verwendet.forEach((w) => {
+    const r = document.createElement("label");
+    r.innerHTML = `<span>1 ${escapeHtml(w)} = ... ${escapeHtml(trip.finHauptwaehrung)}</span>`;
+    const i = document.createElement("input");
+    i.type = "number"; i.step = "0.0001"; i.inputMode = "decimal"; i.value = trip.finKurse[w] || "";
+    i.onchange = () => { trip.finKurse[w] = finNum(i.value) || ""; saveChange(); finAuswertungOffen = true; rerender(); };
+    r.appendChild(i);
+    box.appendChild(r);
+  });
+}
+
+// ---------- Export ----------
+function finExportRows(trip) {
+  finNormalize(trip);
+  const personen = finPersonen(trip);
+  const konv = Object.keys(finBerechne(trip).gesamt).every((w) => w === trip.finHauptwaehrung || finNum(trip.finKurse[w]) > 0);
+  const head = ["Datum", "Kategorie", "Details", "Wo", "Betrag", "Währung", "Zahlungsart", "Bezahlt von", "Abgerechnet", "Notizen", ...personen.map((p) => "Anteil " + p)];
+  if (konv) head.push("Betrag in " + trip.finHauptwaehrung);
+  const sorted = [...trip.finanzen].sort((a, b) => (a.datum || "").localeCompare(b.datum || ""));
+  const rows = sorted.map((f) => {
+    const sh = finShareMap(f);
+    const w = f.waehrung || "CHF";
+    const r = [f.datum ? formatDate(f.datum) : "", f.kategorie || "", f.details || "", f.wo || "", finNum(f.betrag), w, f.zahlungsart || "", f.bezahltVon || "", f.abgerechnet ? "ja" : "nein", f.notizen || "",
+      ...personen.map((p) => (sh[p] ? finRound(sh[p]) : ""))];
+    if (konv) r.push(finRound(w === trip.finHauptwaehrung ? finNum(f.betrag) : finNum(f.betrag) * finNum(trip.finKurse[w])));
+    return r;
+  });
+  return { head, rows, personen, konv };
+}
+function finDownload(name, blob) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+function finDateiname(trip, ext) {
+  const s = (trip.titel || "Ferien").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "");
+  return "Finanzen_" + s + "." + ext;
+}
+function finCsvCell(v) {
+  if (typeof v === "number") return String(v).replace(".", ",");
+  const s = String(v == null ? "" : v);
+  return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function finExportCsv(trip) {
+  const { head, rows } = finExportRows(trip);
+  const csv = [head, ...rows].map((r) => r.map(finCsvCell).join(";")).join("\r\n");
+  finDownload(finDateiname(trip, "csv"), new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+}
+
+let finCrcTable = null;
+function finCrc32(bytes) {
+  if (!finCrcTable) {
+    finCrcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      finCrcTable[n] = c >>> 0;
+    }
+  }
+  let crc = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) crc = finCrcTable[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+/** Minimaler ZIP-Writer (ohne Kompression) - genügt für .xlsx. */
+function finZip(files) {
+  const enc = new TextEncoder();
+  const parts = [], central = [];
+  let offset = 0;
+  files.forEach((f) => {
+    const name = enc.encode(f.name);
+    const data = typeof f.data === "string" ? enc.encode(f.data) : f.data;
+    const crc = finCrc32(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, 0, true); lh.setUint16(12, 0x21, true); lh.setUint32(14, crc, true);
+    lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    parts.push(new Uint8Array(lh.buffer), name, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+    ch.setUint16(10, 0, true); ch.setUint16(12, 0, true); ch.setUint16(14, 0x21, true); ch.setUint32(16, crc, true);
+    ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, name.length, true);
+    ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), name);
+    offset += 30 + name.length + data.length;
+  });
+  let csize = 0;
+  central.forEach((c) => { csize += c.length; });
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, csize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+function finXmlEsc(s) {
+  return String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function finColName(i) {
+  let s = "";
+  for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s;
+  return s;
+}
+function finXlsxBlob(sheets) {
+  const sheetXml = (rows) => {
+    let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols><col min="1" max="30" width="18" customWidth="1"/></cols><sheetData>';
+    rows.forEach((r, ri) => {
+      x += '<row r="' + (ri + 1) + '">';
+      r.forEach((v, ci) => {
+        if (v === "" || v == null) return;
+        const ref = finColName(ci) + (ri + 1);
+        const st = r.__bold ? ' s="1"' : "";
+        if (typeof v === "number") x += '<c r="' + ref + '"' + st + "><v>" + v + "</v></c>";
+        else x += '<c r="' + ref + '" t="inlineStr"' + st + "><is><t xml:space=\"preserve\">" + finXmlEsc(v) + "</t></is></c>";
+      });
+      x += "</row>";
+    });
+    return x + "</sheetData></worksheet>";
+  };
+  const files = [
+    { name: "[Content_Types].xml", data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + sheets.map((s, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join("") + "</Types>" },
+    { name: "_rels/.rels", data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+    { name: "xl/workbook.xml", data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + sheets.map((s, i) => '<sheet name="' + finXmlEsc(s.name) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join("") + "</sheets></workbook>" },
+    { name: "xl/_rels/workbook.xml.rels", data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map((s, i) => '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join("") + '<Relationship Id="rId' + (sheets.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+    { name: "xl/styles.xml", data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs></styleSheet>' },
+    ...sheets.map((s, i) => ({ name: "xl/worksheets/sheet" + (i + 1) + ".xml", data: sheetXml(s.rows) })),
+  ];
+  return finZip(files);
+}
+function finExportXlsx(trip) {
+  const { head, rows, personen } = finExportRows(trip);
+  const bold = (arr) => { arr.__bold = true; return arr; };
+  const R = finBerechne(trip);
+  const aus = [bold(["Datum", "Fehlbetrag von", "An", "Betrag", "Währung", "Abgerechnet"])];
+  trip.finAusgleiche.forEach((a) => aus.push([a.datum ? formatDate(a.datum) : "", a.von, a.an, finNum(a.betrag), a.waehrung || "CHF", a.abgerechnet ? "ja" : "nein"]));
+  aus[0][1] = "Von";
+  const ausw = [bold(["Person", "Währung", "Hat bezahlt", "Eigener Anteil", "Saldo offen"])];
+  personen.forEach((p) => {
+    Object.keys(finUniq([...Object.keys(R.bezahlt), ...Object.keys(R.anteil), ...Object.keys(R.net)]).reduce((o, w) => { o[w] = 1; return o; }, {})).forEach((w) => {
+      const b = (R.bezahlt[w] || {})[p] || 0, a = (R.anteil[w] || {})[p] || 0, n = (R.net[w] || {})[p] || 0;
+      if (b || a || n) ausw.push([p, w, finRound(b), finRound(a), finRound(n)]);
+    });
+  });
+  ausw.push([""]);
+  ausw.push(bold(["Kategorie", "Währung", "Summe"]));
+  Object.keys(R.kat).sort().forEach((k) => Object.keys(R.kat[k]).forEach((w) => ausw.push([k, w, finRound(R.kat[k][w])])));
+  ausw.push([""]);
+  ausw.push(bold(["Total", "Währung", "Summe"]));
+  Object.keys(R.gesamt).forEach((w) => ausw.push(["Total", w, finRound(R.gesamt[w])]));
+  finDownload(finDateiname(trip, "xlsx"), finXlsxBlob([
+    { name: "Ausgaben", rows: [bold(head), ...rows] },
+    { name: "Auswertung", rows: ausw },
+    { name: "Ausgleiche", rows: aus },
+  ]));
 }
 
 // ===========================================================
