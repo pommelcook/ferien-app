@@ -11,6 +11,9 @@ let currentTab = "start";
 const filterMode = { packliste: "offen", todo: "offen" };
 // Wonach gruppiert wird: "kategorie" oder (nur beim To-Do) "termin"
 const groupBy = { packliste: "kategorie", todo: "kategorie" };
+// Zwei getrennte Filter-Ebenen: Termin (nur To-Do) und Kategorie
+const terminFilter = { packliste: "alle", todo: "alle" };
+const kategorieFilter = { packliste: "alle", todo: "alle" };
 // Sortierung innerhalb einer Gruppe: "manuell" (per Drag&Drop/Pfeile) oder "az"
 const sortMode = { packliste: "manuell", todo: "manuell" };
 // Welche Kategorien gerade eingeklappt sind (Set von "liste:kategorie")
@@ -63,6 +66,12 @@ function resetAnsichtEinstellungen() {
 }
 // Einmalig/Fix-Wahl für die Inline-Erfassung auf der Reisetag-Seite (pro Liste)
 const reisetagNeuErfassungsTyp = { todo: "einmalig", packliste: "einmalig" };
+// Reisetag/Listen: kürzlich (letzte 3 Tage) abgehakte Punkte wieder einblenden,
+// um Versehentliches wieder zu öffnen.
+let reisetagZeigeErledigte = false;
+function istKuerzlichErledigt(item) {
+  return !!item.erledigt && !!item.erledigtAm && (Date.now() - item.erledigtAm) < 3 * 86400000;
+}
 
 // ===========================================================
 // NAVIGATION (Kacheln) - vom Nutzer sortierbar, siehe Einstellungen
@@ -117,10 +126,7 @@ function renderNavBars() {
   if (tabBar) tabBar.innerHTML = buttonsHtml;
 
   document.querySelectorAll(".nav-tab").forEach((btn) => {
-    btn.onclick = () => {
-      currentTab = btn.dataset.tab;
-      render();
-    };
+    btn.onclick = () => navigateTab(btn.dataset.tab);
   });
 }
 
@@ -309,6 +315,7 @@ function istAufAktuellerPackliste(a, trip) {
  *  "nicht relevant" markierte Punkte aus. */
 function matchesFilter(item, filter, trip) {
   if (filter === "erledigt") return !!item.erledigt;
+  if (filter === "kuerzlich") return istKuerzlichErledigt(item);
   if (filter === "nichtRelevant") return !!item.nichtRelevant;
   if (filter === "prioritaet") return !!item.prioritaet && !item.nichtRelevant;
   if (filter === "einmalig") return item.erfassungsTyp === "einmalig";
@@ -746,6 +753,16 @@ function renderReisetagTab(el, trip) {
     : `<i class="ti ti-list-details"></i> Alle offenen Positionen anzeigen`;
   toggleAllBtn.onclick = () => { reisetagShowAllOpen = !reisetagShowAllOpen; onChange(); };
   nav.appendChild(toggleAllBtn);
+  const toggleDoneBtn = document.createElement("button");
+  toggleDoneBtn.type = "button";
+  toggleDoneBtn.className = "link-button";
+  toggleDoneBtn.style.display = "block";
+  toggleDoneBtn.style.margin = "6px auto 0";
+  toggleDoneBtn.innerHTML = reisetagZeigeErledigte
+    ? `<i class="ti ti-eye-off"></i> Kürzlich Erledigte ausblenden`
+    : `<i class="ti ti-history"></i> Kürzlich Erledigte anzeigen`;
+  toggleDoneBtn.onclick = () => { reisetagZeigeErledigte = !reisetagZeigeErledigte; onChange(); };
+  nav.appendChild(toggleDoneBtn);
 
   // Kategorie-Filter: Auswahl aus allen Kategorien, die aktuell unter den
   // fälligen/offenen Positionen (beider Abschnitte) vorkommen.
@@ -782,7 +799,7 @@ function renderReisetagTab(el, trip) {
   );
   todoSection.appendChild(todoHeaderResult.header);
   const jumpTodoIcon = todoHeaderResult.header.querySelector('[data-jump="todo"]');
-  if (jumpTodoIcon) jumpTodoIcon.onclick = (e) => { e.stopPropagation(); currentTab = "todo"; render(); };
+  if (jumpTodoIcon) jumpTodoIcon.onclick = (e) => { e.stopPropagation(); navigateTab("todo"); };
   if (!todoHeaderResult.isCollapsed) {
     if (!todosForDay.length) {
       const hint = document.createElement("p");
@@ -807,7 +824,7 @@ function renderReisetagTab(el, trip) {
   );
   packSection.appendChild(packHeaderResult.header);
   const jumpPackIcon = packHeaderResult.header.querySelector('[data-jump="packliste"]');
-  if (jumpPackIcon) jumpPackIcon.onclick = (e) => { e.stopPropagation(); currentTab = "packliste"; render(); };
+  if (jumpPackIcon) jumpPackIcon.onclick = (e) => { e.stopPropagation(); navigateTab("packliste"); };
   if (!packHeaderResult.isCollapsed) {
     if (!openPack.length) {
       const empty = document.createElement("p");
@@ -828,7 +845,8 @@ function renderReisetagTab(el, trip) {
  *  Positionen unabhängig vom Termin (z. B. auch zukünftige). */
 function reisetagItemMatches(item, trip, offset, showAllOpen) {
   if (!itemVisible(item, trip)) return false;
-  if (item.erledigt || item.nichtRelevant) return false;
+  if (item.nichtRelevant) return false;
+  if (item.erledigt) return reisetagZeigeErledigte && istKuerzlichErledigt(item);
   if (showAllOpen) return true;
   if (item.termin === undefined || item.termin === null || item.termin === "") return true;
   return Number(item.termin) <= offset;
@@ -838,85 +856,11 @@ function reisetagItemMatches(item, trip, offset, showAllOpen) {
  *  dasselbe Item-Objekt wie Packliste/To-Do zu (keine Kopie), daher ist
  *  das Abhaken hier automatisch bidirektional synchron. */
 function reisetagItemRow(item, onChange, listKey) {
-  const row = document.createElement("div");
-  row.className = "item-row" + (item.erledigt ? " done" : "") + (item.nichtRelevant ? " not-relevant" : "") + (item.prioritaet ? " priority" : "");
-
-  const cb = document.createElement("input");
-  cb.type = "checkbox";
-  cb.checked = item.erledigt;
-  cb.addEventListener("change", () => {
-    item.erledigt = cb.checked;
-    if (item.erledigt) item.nichtRelevant = false;
-    saveChange();
-    onChange();
-  });
-  row.appendChild(cb);
-
-  // Flaggen-Platz immer reservieren (auch wenn nicht prioritär), damit die
-  // Zeile beim Umschalten nicht seitlich springt - antippen wirkt wie der
-  // Prio-Button in den anderen Listen.
-  const flag = document.createElement("i");
-  flag.className = "ti ti-flag reisetag-priority-flag" + (item.prioritaet ? " active" : "");
-  flag.title = item.prioritaet ? "Priorität entfernen" : "Als Priorität markieren";
-  flag.onclick = () => {
-    item.prioritaet = !item.prioritaet;
-    saveChange();
-    onChange();
-  };
-  row.appendChild(flag);
-
-  const span = document.createElement("span");
-  span.style.flex = "1";
-  span.style.cursor = "pointer";
-  span.title = "Antippen zum Bearbeiten";
-  span.textContent = item.text;
-  span.onclick = () => {
-    const inDb = ensureVorlageFuerListKey(listKey).some((a) => a.text === item.text);
-    if (inDb) {
-      openLocalOderDbChoiceModal(item, onChange, listKey);
-    } else {
-      openLokalBearbeitenModal(item, onChange, listKey);
-    }
-  };
-  if (item.termin !== undefined && item.termin !== null && item.termin !== "") {
-    const badge = document.createElement("span");
-    badge.className = "termin-badge";
-    badge.style.marginLeft = "6px";
-    badge.textContent = formatTermin(Number(item.termin));
-    span.appendChild(badge);
-  }
-  if (item.kategorie) {
-    const katBadge = document.createElement("span");
-    katBadge.className = "hint-small reisetag-kategorie-badge";
-    katBadge.style.marginLeft = "6px";
-    katBadge.textContent = item.kategorie;
-    span.appendChild(katBadge);
-  }
-  const reisetagTrip = getCurrentTrip();
-  if (!istFerienVorbei(reisetagTrip)) {
-    const dbEntryRt = ensureVorlageFuerListKey(listKey).find((e) => e.text === item.text);
-    if (dbEntryRt) {
-      if (dbEntryRt.spontan) {
-        const spontanBadgeRt = document.createElement("span");
-        spontanBadgeRt.className = "spontan-badge";
-        spontanBadgeRt.style.marginLeft = "6px";
-        spontanBadgeRt.title = "Spontan über Packliste/Reisetag erfasst - noch nicht vollständig geprüft";
-        spontanBadgeRt.innerHTML = `<i class="ti ti-sparkles"></i> Spontan`;
-        span.appendChild(spontanBadgeRt);
-      }
-      if (istCheckOffen(dbEntryRt)) {
-        const checkBadgeRt = document.createElement("span");
-        checkBadgeRt.className = "check-badge";
-        checkBadgeRt.style.marginLeft = "6px";
-        checkBadgeRt.title = "Dieser Datenbank-Eintrag wurde noch nicht geprüft";
-        checkBadgeRt.innerHTML = `<i class="ti ti-list-check"></i> Check offen`;
-        span.appendChild(checkBadgeRt);
-      }
-    }
-  }
-  row.appendChild(span);
-
-  return row;
+  const trip = getCurrentTrip();
+  const frag = document.createDocumentFragment();
+  frag.appendChild(itemRow(trip, listKey, item, listKey === "todo", false, [], 0, onChange));
+  if (editingReminderId === item.id) frag.appendChild(reminderForm(item, onChange));
+  return frag;
 }
 
 /** Inline-Erfassungsformular direkt auf der Reisetag-Seite: neue To-Dos landen
@@ -1153,10 +1097,10 @@ function renderTripEditForm(trip, onChange) {
   const form = document.createElement("form");
   form.className = "field-form panel";
   form.innerHTML = `
-    <label>Titel<input type="text" name="titel" value="${escapeHtml(trip.titel)}" required /></label>
+    <label><span><i class="ti ti-heading"></i> Titel</span><input type="text" name="titel" value="${escapeHtml(trip.titel)}" required /></label>
     <div class="field-row">
-      <label>Von<input type="date" name="von" value="${escapeHtml(trip.von || "")}" /></label>
-      <label>Bis<input type="date" name="bis" value="${escapeHtml(trip.bis || "")}" /></label>
+      <label><span><i class="ti ti-calendar-event"></i> Von</span><input type="date" name="von" value="${escapeHtml(trip.von || "")}" /></label>
+      <label><span><i class="ti ti-calendar-event"></i> Bis</span><input type="date" name="bis" value="${escapeHtml(trip.bis || "")}" /></label>
     </div>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
@@ -1265,50 +1209,50 @@ function renderUnterkunftForm(trip, onChange) {
   const form = document.createElement("form");
   form.className = "field-form panel";
   form.innerHTML = `
-    <label>Name<input type="text" name="name" value="${escapeHtml(u.name)}" placeholder="z. B. Chalet Alpenblick" required /></label>
+    <label><span><i class="ti ti-id"></i> Name</span><input type="text" name="name" value="${escapeHtml(u.name)}" placeholder="z. B. Chalet Alpenblick" required /></label>
     ${(trip.etappen && trip.etappen.length) ? `
-    <label>Etappe
+    <label><span><i class="ti ti-route"></i> Etappe</span>
       <select name="etappeId">
         <option value="">Keine Etappe</option>
         ${trip.etappen.map((e) => `<option value="${escapeHtml(e.id)}" ${u.etappeId === e.id ? "selected" : ""}>${escapeHtml(etappenLabel(trip, e))}</option>`).join("")}
       </select>
     </label>` : ""}
     <div class="field-row">
-      <label>Von<input type="date" name="von" value="${escapeHtml(u.von)}" /></label>
-      <label>Bis<input type="date" name="bis" value="${escapeHtml(u.bis)}" /></label>
+      <label><span><i class="ti ti-calendar-event"></i> Von</span><input type="date" name="von" value="${escapeHtml(u.von)}" /></label>
+      <label><span><i class="ti ti-calendar-event"></i> Bis</span><input type="date" name="bis" value="${escapeHtml(u.bis)}" /></label>
     </div>
     <div class="field-row">
-      <label>Check-in<input type="text" name="checkin" value="${escapeHtml(u.checkin)}" placeholder="z. B. ab 15:00" /></label>
-      <label>Check-out<input type="text" name="checkout" value="${escapeHtml(u.checkout)}" placeholder="z. B. bis 10:00" /></label>
+      <label><span><i class="ti ti-login"></i> Check-in</span><input type="text" name="checkin" value="${escapeHtml(u.checkin)}" placeholder="z. B. ab 15:00" /></label>
+      <label><span><i class="ti ti-logout"></i> Check-out</span><input type="text" name="checkout" value="${escapeHtml(u.checkout)}" placeholder="z. B. bis 10:00" /></label>
     </div>
-    <label>Strasse / Nr.<input type="text" name="adresse" value="${escapeHtml(u.adresse)}" /></label>
+    <label><span><i class="ti ti-map-pin"></i> Strasse / Nr.</span><input type="text" name="adresse" value="${escapeHtml(u.adresse)}" /></label>
     <div class="field-row">
-      <label>PLZ / Ort<input type="text" name="plzOrt" value="${escapeHtml(u.plzOrt)}" /></label>
-      <label>Land<input type="text" name="land" value="${escapeHtml(u.land)}" /></label>
+      <label><span><i class="ti ti-map-pin"></i> PLZ / Ort</span><input type="text" name="plzOrt" value="${escapeHtml(u.plzOrt)}" /></label>
+      <label><span><i class="ti ti-map-pin"></i> Land</span><input type="text" name="land" value="${escapeHtml(u.land)}" /></label>
     </div>
-    <label>Navi-Adresse (falls abweichend)<input type="text" name="naviAdresse" value="${escapeHtml(u.naviAdresse || "")}" placeholder="z. B. bei abgelegenen Chalets/Höfen - was man wirklich ins Navi eintippt" /></label>
+    <label><span><i class="ti ti-navigation"></i> Navi-Adresse (falls abweichend)</span><input type="text" name="naviAdresse" value="${escapeHtml(u.naviAdresse || "")}" placeholder="z. B. bei abgelegenen Chalets/Höfen - was man wirklich ins Navi eintippt" /></label>
     <div class="field-row">
-      <label>Vermieter (Name)<input type="text" name="vermieterName" value="${escapeHtml(u.vermieterName)}" /></label>
-      <label>Telefon<input type="text" name="telefon" value="${escapeHtml(u.telefon)}" /></label>
+      <label><span><i class="ti ti-user"></i> Vermieter (Name)</span><input type="text" name="vermieterName" value="${escapeHtml(u.vermieterName)}" /></label>
+      <label><span><i class="ti ti-phone"></i> Telefon</span><input type="text" name="telefon" value="${escapeHtml(u.telefon)}" /></label>
     </div>
     <div class="field-row">
-      <label>E-Mail<input type="email" name="email" value="${escapeHtml(u.email)}" /></label>
-      <label>Buchungsnr.<input type="text" name="buchungsnummer" value="${escapeHtml(u.buchungsnummer)}" /></label>
+      <label><span><i class="ti ti-mail"></i> E-Mail</span><input type="email" name="email" value="${escapeHtml(u.email)}" /></label>
+      <label><span><i class="ti ti-hash"></i> Buchungsnr.</span><input type="text" name="buchungsnummer" value="${escapeHtml(u.buchungsnummer)}" /></label>
     </div>
-    <label>Zugangscode / Schlüsselübergabe<input type="text" name="zugangscode" value="${escapeHtml(u.zugangscode)}" /></label>
+    <label><span><i class="ti ti-key"></i> Zugangscode / Schlüsselübergabe</span><input type="text" name="zugangscode" value="${escapeHtml(u.zugangscode)}" /></label>
     <div class="field-row">
-      <label>WLAN-Name<input type="text" name="wlanName" value="${escapeHtml(u.wlanName)}" /></label>
-      <label>WLAN-Passwort<input type="text" name="wlanPasswort" value="${escapeHtml(u.wlanPasswort)}" /></label>
+      <label><span><i class="ti ti-wifi"></i> WLAN-Name</span><input type="text" name="wlanName" value="${escapeHtml(u.wlanName)}" /></label>
+      <label><span><i class="ti ti-key"></i> WLAN-Passwort</span><input type="text" name="wlanPasswort" value="${escapeHtml(u.wlanPasswort)}" /></label>
     </div>
     <p class="hint-small" style="margin-bottom:2px">🔗 Links</p>
-    <label>Google Maps<input type="url" name="linkGoogleMaps" value="${escapeHtml(u.linkGoogleMaps)}" placeholder="https://..." /></label>
-    <label>Webseite / Inserat<input type="url" name="linkWebseite" value="${escapeHtml(u.linkWebseite)}" placeholder="https://..." /></label>
+    <label><span><i class="ti ti-map"></i> Google Maps</span><input type="url" name="linkGoogleMaps" value="${escapeHtml(u.linkGoogleMaps)}" placeholder="https://..." /></label>
+    <label><span><i class="ti ti-link"></i> Webseite / Inserat</span><input type="url" name="linkWebseite" value="${escapeHtml(u.linkWebseite)}" placeholder="https://..." /></label>
     <div class="field-row">
-      <label>Booking.com<input type="url" name="linkBooking" value="${escapeHtml(u.linkBooking)}" placeholder="https://..." /></label>
-      <label>Airbnb<input type="url" name="linkAirbnb" value="${escapeHtml(u.linkAirbnb)}" placeholder="https://..." /></label>
+      <label><span><i class="ti ti-link"></i> Booking.com</span><input type="url" name="linkBooking" value="${escapeHtml(u.linkBooking)}" placeholder="https://..." /></label>
+      <label><span><i class="ti ti-link"></i> Airbnb</span><input type="url" name="linkAirbnb" value="${escapeHtml(u.linkAirbnb)}" placeholder="https://..." /></label>
     </div>
-    <label>Sonstiges<input type="url" name="linkSonstiges" value="${escapeHtml(u.linkSonstiges)}" placeholder="https://..." /></label>
-    <label>Bemerkung<textarea name="notizen" rows="2">${escapeHtml(u.notizen)}</textarea></label>
+    <label><span><i class="ti ti-dots"></i> Sonstiges</span><input type="url" name="linkSonstiges" value="${escapeHtml(u.linkSonstiges)}" placeholder="https://..." /></label>
+    <label><span><i class="ti ti-message-2"></i> Bemerkung</span><textarea name="notizen" rows="2">${escapeHtml(u.notizen)}</textarea></label>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="cancel-unterkunft" class="secondary">Abbrechen</button>
@@ -1536,10 +1480,10 @@ function renderEtappeForm(trip, onChange) {
   const form = document.createElement("form");
   form.className = "field-form panel";
   form.innerHTML = `
-    <label>Titel<input type="text" name="titel" value="${escapeHtml(etp.titel)}" placeholder="z. B. Zermatt" required /></label>
+    <label><span><i class="ti ti-heading"></i> Titel</span><input type="text" name="titel" value="${escapeHtml(etp.titel)}" placeholder="z. B. Zermatt" required /></label>
     <div class="field-row">
-      <label>Von<input type="date" name="von" value="${escapeHtml(etp.von)}" /></label>
-      <label>Bis<input type="date" name="bis" value="${escapeHtml(etp.bis)}" /></label>
+      <label><span><i class="ti ti-calendar-event"></i> Von</span><input type="date" name="von" value="${escapeHtml(etp.von)}" /></label>
+      <label><span><i class="ti ti-calendar-event"></i> Bis</span><input type="date" name="bis" value="${escapeHtml(etp.bis)}" /></label>
     </div>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
@@ -1906,7 +1850,26 @@ function seedListFromKatalogIfEmpty(trip, key) {
 function renderListTab(el, trip, key, icon, placeholder) {
   seedListFromKatalogIfEmpty(trip, key);
   const items = trip[key];
-  const relevant = items.filter((i) => itemVisible(i, trip) && matchesFilter(i, filterMode[key], trip));
+  const statusItems = items.filter((i) => itemVisible(i, trip) && matchesFilter(i, filterMode[key], trip));
+  const katOptionen = [...new Set(statusItems.map((i) => i.kategorie || "Allgemein"))].sort((a, b) => a.localeCompare(b, "de"));
+  const terminWerte = [...new Set(statusItems.filter((i) => i.termin !== undefined && i.termin !== null && i.termin !== "").map((i) => Number(i.termin)))].sort((a, b) => a - b);
+  if (kategorieFilter[key] !== "alle" && !katOptionen.includes(kategorieFilter[key])) kategorieFilter[key] = "alle";
+  if (terminFilter[key] !== "alle" && terminFilter[key] !== "ohne" && terminFilter[key] !== "ueberfaellig" && !terminWerte.includes(Number(String(terminFilter[key]).slice(2)))) terminFilter[key] = "alle";
+  const terminOk = (i) => {
+    const tf = terminFilter[key];
+    if (tf === "alle" || key !== "todo") return true;
+    const hat = i.termin !== undefined && i.termin !== null && i.termin !== "";
+    if (tf === "ohne") return !hat;
+    if (tf === "ueberfaellig") return hat && !i.erledigt && !i.nichtRelevant && Number(i.termin) < (trip ? computeTodayOffset(trip) : 0);
+    return hat && Number(i.termin) === Number(tf.slice(2));
+  };
+  const relevant = statusItems.filter((i) => terminOk(i) && (kategorieFilter[key] === "alle" || (i.kategorie || "Allgemein") === kategorieFilter[key]));
+  const filterChip = (typ, val, label, aktiv) => '<button type="button" class="chip filter-chip' + (aktiv ? " active" : "") + '" data-ftype="' + typ + '" data-fval="' + encodeURIComponent(val) + '">' + label + '</button>';
+  const katChips = [filterChip("kat", "alle", "Alle", kategorieFilter[key] === "alle"), ...katOptionen.map((k) => filterChip("kat", k, '<i class="ti ' + categoryIcon(k) + '"></i>' + escapeHtml(k), kategorieFilter[key] === k))].join("");
+  const terminChips = key === "todo"
+    ? [filterChip("termin", "alle", "Alle", terminFilter[key] === "alle"), filterChip("termin", "ueberfaellig", '<i class="ti ti-alarm"></i>Überfällig', terminFilter[key] === "ueberfaellig"), filterChip("termin", "ohne", "Kein Termin", terminFilter[key] === "ohne"), ...terminWerte.map((n) => filterChip("termin", "t:" + n, escapeHtml(formatTermin(n)), terminFilter[key] === "t:" + n))].join("")
+    : "";
+  const filterAktiv = terminFilter[key] !== "alle" || kategorieFilter[key] !== "alle";
   const isTodo = key === "todo";
   const mode = groupBy[key];
 
@@ -1919,11 +1882,13 @@ function renderListTab(el, trip, key, icon, placeholder) {
         { value: "offen", label: "Offene", icon: "ti-circle-dashed" },
         { value: "prioritaet", label: "Prio", icon: "ti-flag" },
         { value: "ueberfaellig", label: "Überfällig", icon: "ti-alarm" },
+        { value: "kuerzlich", label: "Kürzlich erledigt", icon: "ti-history" },
         { value: "alle", label: "Alle", icon: "ti-list" },
       ]
     : [
         { value: "offen", label: "Offene", icon: "ti-circle-dashed" },
         { value: "prioritaet", label: "Prio", icon: "ti-flag" },
+        { value: "kuerzlich", label: "Kürzlich erledigt", icon: "ti-history" },
         { value: "alle", label: "Alle", icon: "ti-list" },
       ];
 
@@ -1932,11 +1897,17 @@ function renderListTab(el, trip, key, icon, placeholder) {
     <div class="quick-filter-row">
       ${quickFilters.map((f) => `<button type="button" class="quick-filter-btn${filterMode[key] === f.value ? " active" : ""}" data-filter="${f.value}"><i class="ti ${f.icon}"></i> ${f.label}</button>`).join("")}
     </div>` : ""}
+    <details class="filter-details"${filterAktiv ? " open" : ""}>
+      <summary><i class="ti ti-filter"></i> Filter nach ${key === "todo" ? "Termin und " : ""}Kategorie${filterAktiv ? " (aktiv)" : ""}</summary>
+      ${key === "todo" ? `<div class="filter-level"><span class="filter-level-title"><i class="ti ti-calendar-event"></i> Termin</span><div class="chip-row">${terminChips}</div></div>` : ""}
+      <div class="filter-level"><span class="filter-level-title"><i class="ti ti-tag"></i> Kategorie</span><div class="chip-row">${katChips}</div></div>
+    </details>
     <p class="hint-small" style="margin:4px 0">Total: ${relevant.length}</p>
     <div class="list-toolbar">
       <select id="filter-select" title="Status-Filter">
         <option value="offen"${filterMode[key] === "offen" ? " selected" : ""}>Offen</option>
         <option value="erledigt"${filterMode[key] === "erledigt" ? " selected" : ""}>Erledigt</option>
+        <option value="kuerzlich"${filterMode[key] === "kuerzlich" ? " selected" : ""}>Kürzlich erledigt</option>
         <option value="nichtRelevant"${filterMode[key] === "nichtRelevant" ? " selected" : ""}>Nicht relevant</option>
         <option value="prioritaet"${filterMode[key] === "prioritaet" ? " selected" : ""}>Priorität</option>
         <option value="einmalig"${filterMode[key] === "einmalig" ? " selected" : ""}>Einmalig</option>
@@ -1958,6 +1929,7 @@ function renderListTab(el, trip, key, icon, placeholder) {
         Alle ${allCollapsed ? "ausklappen" : "einklappen"}
       </button>
     </div>
+    <div class="item-grid-head${isTodo ? " with-termin" : ""}"><span class="h-opts">Optionen</span><span class="h-text">${isTodo ? "To-Do" : "Artikel"}</span>${isTodo ? '<span class="h-termin">Termin</span>' : ""}<span class="h-bem">Bemerkung</span><span class="h-kat">Kategorie</span><span class="h-end"></span></div>
     <div id="cat-container"></div>
     <div id="neuer-eintrag-container"></div>
   `;
@@ -1965,6 +1937,15 @@ function renderListTab(el, trip, key, icon, placeholder) {
   document.querySelectorAll(".quick-filter-btn").forEach((btn) => {
     btn.onclick = () => {
       filterMode[key] = btn.dataset.filter;
+      renderListTab(el, trip, key, icon, placeholder);
+    };
+  });
+
+  document.querySelectorAll(".filter-chip").forEach((b) => {
+    b.onclick = () => {
+      const v = decodeURIComponent(b.dataset.fval);
+      if (b.dataset.ftype === "termin") terminFilter[key] = v;
+      else kategorieFilter[key] = v;
       renderListTab(el, trip, key, icon, placeholder);
     };
   });
@@ -2088,10 +2069,10 @@ function openLokalBearbeitenModal(item, onChange, listKey) {
   wrap.innerHTML = `
     <h3><i class="ti ti-pencil"></i> Lokal bearbeiten</h3>
     <p class="hint-small">Gilt nur für diese Ferien.</p>
-    <label>Text<input type="text" id="lokal-edit-text" class="field-emphasized" value="${escapeHtml(item.text)}" /></label>
-    <label>Kategorie</label>
+    <label><span><i class="ti ti-pencil"></i> Text</span><input type="text" id="lokal-edit-text" class="field-emphasized" value="${escapeHtml(item.text)}" /></label>
+    <label><span><i class="ti ti-tag"></i> Kategorie</span></label>
     <div id="lokal-edit-kategorie-field"></div>
-    <label>Bemerkung (gilt nur für diese Ferien, optional)<textarea id="lokal-edit-bemerkung" class="field-emphasized" rows="2">${escapeHtml(item.bemerkung || "")}</textarea></label>
+    <label><span><i class="ti ti-message-2"></i> Bemerkung (gilt nur für diese Ferien, optional)</span><textarea id="lokal-edit-bemerkung" class="field-emphasized" rows="2">${escapeHtml(item.bemerkung || "")}</textarea></label>
     <label class="checkbox-inline"><input type="checkbox" id="lokal-edit-prioritaet" ${item.prioritaet ? "checked" : ""} /> <i class="ti ti-flag"></i> Priorität</label>
     <div class="form-actions">
       <button type="button" id="lokal-edit-save"><i class="ti ti-check"></i> Speichern</button>
@@ -2123,11 +2104,16 @@ function openLokalBearbeitenModal(item, onChange, listKey) {
   const lokalDeleteBtn = wrap.querySelector("#lokal-edit-delete");
   if (lokalDeleteBtn && trip && listKey) {
     lokalDeleteBtn.onclick = () => {
-      if (!confirm("\"" + item.text + "\" wirklich löschen?")) return;
+      const pos = trip[listKey].findIndex((i) => i.id === item.id);
       trip[listKey] = trip[listKey].filter((i) => i.id !== item.id);
       saveChange();
       closeModal();
       onChange();
+      showUndoToast('"' + item.text + '" gelöscht', () => {
+        trip[listKey].splice(Math.min(Math.max(pos, 0), trip[listKey].length), 0, item);
+        saveChange();
+        render();
+      });
     };
   }
 }
@@ -2198,8 +2184,8 @@ function openTodoVorlageEditModal(entry, onSaved, linkedItem) {
     </div>
     <h3><i class="ti ti-database"></i> To-Do-Vorlage bearbeiten</h3>
     <p class="hint-small">Gilt für alle Ferien, auch künftige.</p>
-    <label>Text<input type="text" id="vorlage-edit-text" class="field-emphasized" value="${escapeHtml(entry.text)}" /></label>
-    <label>Kategorie</label>
+    <label><span><i class="ti ti-pencil"></i> Text</span><input type="text" id="vorlage-edit-text" class="field-emphasized" value="${escapeHtml(entry.text)}" /></label>
+    <label><span><i class="ti ti-tag"></i> Kategorie</span></label>
     <div id="vorlage-edit-kategorie-field"></div>
     ${entry.spontan ? `<p class="hint-small" style="margin:0 0 4px"><i class="ti ti-sparkles"></i> Spontan über Packliste/Reisetag erfasst - bitte Angaben prüfen und danach "Check erledigt" setzen.</p>` : ""}
     <div class="checkbox-inline-row">
@@ -2277,12 +2263,18 @@ function openLocalOderDbChoiceModal(item, onChange, listKey) {
     openLokalBearbeitenModal(item, onChange, listKey);
   };
   wrap.querySelector("#choice-delete").onclick = () => {
-    if (!confirm("\"" + item.text + "\" wirklich löschen?")) return;
     const trip = getCurrentTrip();
-    if (trip) trip[listKey] = trip[listKey].filter((i) => i.id !== item.id);
+    if (!trip) return;
+    const pos = trip[listKey].findIndex((i) => i.id === item.id);
+    trip[listKey] = trip[listKey].filter((i) => i.id !== item.id);
     saveChange();
     closeModal();
     onChange();
+    showUndoToast('"' + item.text + '" gelöscht', () => {
+      trip[listKey].splice(Math.min(Math.max(pos, 0), trip[listKey].length), 0, item);
+      saveChange();
+      render();
+    });
   };
   wrap.querySelector("#choice-db").onclick = () => {
     closeModal();
@@ -2303,12 +2295,15 @@ function openLocalOderDbChoiceModal(item, onChange, listKey) {
 
 function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, onChange) {
   const row = document.createElement("div");
-  row.className = "item-row" + (item.erledigt ? " done" : "") + (item.nichtRelevant ? " not-relevant" : "") + (item.prioritaet ? " priority" : "");
+  row.className = "item-row" + (item.erledigt ? " done" : "") + (item.nichtRelevant ? " not-relevant" : "") + (item.prioritaet ? " priority" : "") + " item-grid" + (showTermin ? " with-termin" : "");
+  const optsCol = document.createElement("div");
+  optsCol.className = "item-col-opts";
+  row.appendChild(optsCol);
 
   if (manualSort) {
     const handle = document.createElement("i");
     handle.className = "ti ti-grip-vertical drag-handle";
-    row.appendChild(handle);
+    optsCol.appendChild(handle);
     row.draggable = true;
     row.addEventListener("dragstart", () => {
       dragState = { id: item.id, list: siblingList };
@@ -2355,7 +2350,7 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     };
     moveButtons.appendChild(upBtn);
     moveButtons.appendChild(downBtn);
-    row.appendChild(moveButtons);
+    optsCol.appendChild(moveButtons);
   }
 
   const cb = document.createElement("input");
@@ -2363,11 +2358,12 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
   cb.checked = item.erledigt;
   cb.addEventListener("change", () => {
     item.erledigt = cb.checked;
+    item.erledigtAm = cb.checked ? Date.now() : null;
     if (cb.checked) item.nichtRelevant = false;
     saveChange();
     onChange();
   });
-  row.appendChild(cb);
+  optsCol.appendChild(cb);
 
   // --- Aktions-Icons direkt nach der Checkbox (Zeilenanfang), damit man beim
   // schnellen Durchgehen einer Liste mit der Maus nicht jedes Mal ans
@@ -2442,29 +2438,46 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
     actionCluster.appendChild(dbBtn);
   }
 
-  row.appendChild(actionCluster);
+  optsCol.appendChild(actionCluster);
 
   if (showTermin && item.termin !== undefined && item.termin !== null && item.termin !== "") {
     const badge = document.createElement("span");
     badge.className = "termin-badge";
     badge.textContent = formatTermin(item.termin);
-    row.appendChild(badge);
+    const terminCol = document.createElement("span");
+    terminCol.className = "item-col-termin";
+    terminCol.appendChild(badge);
+    row.appendChild(terminCol);
   }
 
   const label = document.createElement("span");
-  label.className = "item-row-label";
+  label.className = "item-row-label item-col-text";
   label.style.flex = "1";
   label.title = "Antippen zum Bearbeiten";
   label.onclick = openEditForItem;
-  label.innerHTML = `${escapeHtml(item.text)}${item.bemerkung ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-message-2"></i> ${escapeHtml(item.bemerkung)}</span>` : ""}`;
+  label.innerHTML = escapeHtml(item.text);
   row.appendChild(label);
+
+  if (item.bemerkung) {
+    const bemCol = document.createElement("span");
+    bemCol.className = "item-col-bem hint-small";
+    bemCol.innerHTML = `<i class="ti ti-message-2"></i> ${escapeHtml(item.bemerkung)}`;
+    row.appendChild(bemCol);
+  }
+  if (item.kategorie) {
+    const katCol = document.createElement("span");
+    katCol.className = "item-col-kat hint-small";
+    katCol.title = "Kategorie";
+    katCol.innerHTML = `<i class="ti ${categoryIcon(item.kategorie)}"></i> ${escapeHtml(item.kategorie)}`;
+    row.appendChild(katCol);
+  }
 
   if (item.erfassungsTyp === "einmalig" || item.erfassungsTyp === "fix") {
     const typBadge = document.createElement("span");
     typBadge.className = "erfassungstyp-badge" + (item.erfassungsTyp === "fix" ? " fix" : "") + " manual-entry-badge";
     typBadge.title = item.erfassungsTyp === "fix" ? "Fix - auch in der zentralen Vorlage" : "Einmalig - nur für diese Ferien";
     typBadge.innerHTML = `<i class="ti ti-hand-click"></i> ${item.erfassungsTyp === "fix" ? "Fix" : "Einmalig"}`;
-    row.appendChild(typBadge);
+    label.appendChild(typBadge);
   }
 
   if ((listKey === "packliste" || listKey === "todo") && !istFerienVorbei(trip)) {
@@ -2475,14 +2488,14 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
         spontanBadge.className = "spontan-badge";
         spontanBadge.title = "Spontan über Packliste/Reisetag erfasst - noch nicht vollständig geprüft";
         spontanBadge.innerHTML = `<i class="ti ti-sparkles"></i> Spontan`;
-        row.appendChild(spontanBadge);
+        label.appendChild(spontanBadge);
       }
       if (istCheckOffen(dbEntry)) {
         const checkBadge = document.createElement("span");
         checkBadge.className = "check-badge";
         checkBadge.title = "Dieser Datenbank-Eintrag wurde noch nicht geprüft";
         checkBadge.innerHTML = `<i class="ti ti-list-check"></i> Check offen`;
-        row.appendChild(checkBadge);
+        label.appendChild(checkBadge);
       }
     }
   }
@@ -2496,13 +2509,17 @@ function itemRow(trip, listKey, item, showTermin, manualSort, siblingList, idx, 
   deleteBtn.innerHTML = `<i class="ti ti-trash"></i>`;
   deleteBtn.title = "Löschen";
   deleteBtn.onclick = () => {
-    if (!confirm(`"${item.text}" wirklich löschen?`)) return;
-    const idx2 = siblingList.findIndex((i) => i.id === item.id);
-    if (idx2 !== -1) siblingList.splice(idx2, 1);
-    const trip2 = trip;
-    trip2[listKey] = trip2[listKey].filter((i) => i.id !== item.id);
+    const liste = trip[listKey];
+    const pos = liste.findIndex((i) => i.id === item.id);
+    if (pos === -1) return;
+    liste.splice(pos, 1);
     saveChange();
     onChange();
+    showUndoToast('"' + item.text + '" gelöscht', () => {
+      liste.splice(Math.min(pos, liste.length), 0, item);
+      saveChange();
+      render();
+    });
   };
   row.appendChild(deleteBtn);
 
@@ -2898,11 +2915,17 @@ function renderArtikelTab(el) {
         delBtn.title = "Löschen";
         delBtn.onclick = (e) => {
           e.stopPropagation();
-          if (!confirm(`"${a.text}" wirklich aus dem Katalog löschen?`)) return;
           const data = getData();
+          const pos = data.artikelDatenbank.findIndex((x) => x.id === a.id);
           data.artikelDatenbank = data.artikelDatenbank.filter((x) => x.id !== a.id);
           saveChange();
           renderArtikelTab(el);
+          showUndoToast('"' + a.text + '" gelöscht', () => {
+            const d2 = getData();
+            d2.artikelDatenbank.splice(Math.min(Math.max(pos, 0), d2.artikelDatenbank.length), 0, a);
+            saveChange();
+            render();
+          });
         };
         row.appendChild(delBtn);
         list.appendChild(row);
@@ -3212,8 +3235,8 @@ function renderArtikelForm(katalog, onChange, prefill, linkedItem) {
     <div class="form-actions form-actions-top">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
     </div>
-    <label>Artikel<input type="text" name="text" class="field-emphasized" value="${escapeHtml(a.text)}" required /></label>
-    <label>Bemerkung (allgemein)<textarea name="bemerkung" class="field-emphasized" rows="2">${escapeHtml(a.bemerkung || "")}</textarea></label>
+    <label><span><i class="ti ti-pencil"></i> Artikel</span><input type="text" name="text" class="field-emphasized" value="${escapeHtml(a.text)}" required /></label>
+    <label><span><i class="ti ti-message-2"></i> Bemerkung (allgemein)</span><textarea name="bemerkung" class="field-emphasized" rows="2">${escapeHtml(a.bemerkung || "")}</textarea></label>
     ${a.spontan ? `<p class="hint-small" style="margin:0 0 4px"><i class="ti ti-sparkles"></i> Spontan über Packliste/Reisetag erfasst - bitte Angaben prüfen/ergänzen und danach "Check erledigt" setzen.</p>` : ""}
     <div class="checkbox-inline-row">
       <label class="checkbox-inline"><input type="checkbox" id="artikel-edit-check" ${(isNew || !istCheckOffen(a)) ? "checked" : ""} /> <i class="ti ti-list-check"></i> Check erledigt (geprüft)</label>
@@ -3347,12 +3370,18 @@ function renderArtikelForm(katalog, onChange, prefill, linkedItem) {
   const deleteBtn = form.querySelector("#delete-artikel");
   if (deleteBtn) {
     deleteBtn.onclick = () => {
-      if (!confirm(`"${existing.text}" wirklich löschen?`)) return;
       const data = getData();
+      const pos = data.artikelDatenbank.findIndex((x) => x.id === existing.id);
       data.artikelDatenbank = data.artikelDatenbank.filter((x) => x.id !== existing.id);
       saveChange();
       editingArtikelId = null;
       onChange();
+      showUndoToast('"' + existing.text + '" gelöscht', () => {
+        const d2 = getData();
+        d2.artikelDatenbank.splice(Math.min(Math.max(pos, 0), d2.artikelDatenbank.length), 0, existing);
+        saveChange();
+        render();
+      });
     };
   }
 
@@ -3451,9 +3480,9 @@ function renderMerkmalForm(defs, onChange) {
   const form = document.createElement("form");
   form.className = "field-form panel";
   form.innerHTML = `
-    <label>Bezeichnung<input type="text" name="label" value="${escapeHtml(m.label)}" required /></label>
-    <label>Icon (Tabler-Icon-Name, z. B. "ti-sun")<input type="text" name="icon" value="${escapeHtml(m.icon)}" /></label>
-    <label>Gruppe (Überbegriff)
+    <label><span><i class="ti ti-tag"></i> Bezeichnung</span><input type="text" name="label" value="${escapeHtml(m.label)}" required /></label>
+    <label><span><i class="ti ti-mood-smile"></i> Icon (Tabler-Icon-Name, z. B. "ti-sun")</span><input type="text" name="icon" value="${escapeHtml(m.icon)}" /></label>
+    <label><span><i class="ti ti-category"></i> Gruppe (Überbegriff)</span>
       <select name="gruppe">
         ${gruppen.map((g) => `<option value="${escapeHtml(g)}"${m.gruppe === g ? " selected" : ""}>${escapeHtml(g)}</option>`).join("")}
         <option value="${escapeHtml(weitereLabel)}"${!m.gruppe || !gruppen.includes(m.gruppe) ? " selected" : ""}>${escapeHtml(weitereLabel)}</option>
@@ -3745,17 +3774,17 @@ function renderTagesplanForm(trip, onChange) {
   const form = document.createElement("form");
   form.className = "field-form panel";
   form.innerHTML = `
-    <label>Datum<input type="date" name="datum" value="${escapeHtml(p.datum)}" /></label>
-    <label>Vormittag<input type="text" name="vormittag" value="${escapeHtml(p.vormittag)}" /></label>
-    <label>Nachmittag<input type="text" name="nachmittag" value="${escapeHtml(p.nachmittag)}" /></label>
-    <label>Abend<input type="text" name="abend" value="${escapeHtml(p.abend)}" /></label>
-    <label>Ort<input type="text" name="ort" value="${escapeHtml(p.ort)}" /></label>
+    <label><span><i class="ti ti-calendar"></i> Datum</span><input type="date" name="datum" value="${escapeHtml(p.datum)}" /></label>
+    <label><span><i class="ti ti-sunrise"></i> Vormittag</span><input type="text" name="vormittag" value="${escapeHtml(p.vormittag)}" /></label>
+    <label><span><i class="ti ti-sun"></i> Nachmittag</span><input type="text" name="nachmittag" value="${escapeHtml(p.nachmittag)}" /></label>
+    <label><span><i class="ti ti-moon"></i> Abend</span><input type="text" name="abend" value="${escapeHtml(p.abend)}" /></label>
+    <label><span><i class="ti ti-map-pin"></i> Ort</span><input type="text" name="ort" value="${escapeHtml(p.ort)}" /></label>
     <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
       <input type="checkbox" name="reservation" ${p.reservation ? "checked" : ""} /> Reservation nötig?
     </label>
-    <label>Kosten<input type="text" name="kosten" value="${escapeHtml(p.kosten)}" placeholder="ca. CHF ..." /></label>
-    <label>Link<input type="url" name="link" value="${escapeHtml(p.link)}" placeholder="https://..." /></label>
-    <label>Bemerkung<textarea name="bemerkung" rows="2">${escapeHtml(p.bemerkung)}</textarea></label>
+    <label><span><i class="ti ti-cash"></i> Kosten</span><input type="text" name="kosten" value="${escapeHtml(p.kosten)}" placeholder="ca. CHF ..." /></label>
+    <label><span><i class="ti ti-link"></i> Link</span><input type="url" name="link" value="${escapeHtml(p.link)}" placeholder="https://..." /></label>
+    <label><span><i class="ti ti-message-2"></i> Bemerkung</span><textarea name="bemerkung" rows="2">${escapeHtml(p.bemerkung)}</textarea></label>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="cancel-tagesplan" class="secondary">Abbrechen</button>
@@ -3977,17 +4006,17 @@ function renderFinanzForm(trip, onChange) {
   const form = document.createElement("form");
   form.className = "field-form panel";
   form.innerHTML = `
-    <label>Beschreibung<input type="text" name="beschreibung" value="${escapeHtml(f.beschreibung)}" required /></label>
+    <label><span><i class="ti ti-file-description"></i> Beschreibung</span><input type="text" name="beschreibung" value="${escapeHtml(f.beschreibung)}" required /></label>
     <div class="field-row">
-      <label>Datum<input type="date" name="datum" value="${escapeHtml(f.datum)}" /></label>
-      <label>Betrag<input type="number" step="0.01" name="betrag" value="${escapeHtml(String(f.betrag))}" /></label>
-      <label>Währung<input type="text" name="waehrung" value="${escapeHtml(f.waehrung)}" style="max-width:70px" /></label>
+      <label><span><i class="ti ti-calendar"></i> Datum</span><input type="date" name="datum" value="${escapeHtml(f.datum)}" /></label>
+      <label><span><i class="ti ti-cash"></i> Betrag</span><input type="number" step="0.01" name="betrag" value="${escapeHtml(String(f.betrag))}" /></label>
+      <label><span><i class="ti ti-currency-dollar"></i> Währung</span><input type="text" name="waehrung" value="${escapeHtml(f.waehrung)}" style="max-width:70px" /></label>
     </div>
     <div class="field-row">
-      <label>Kategorie<input type="text" name="kategorie" value="${escapeHtml(f.kategorie)}" placeholder="z. B. Verpflegung" /></label>
-      <label>Bezahlt von<input type="text" name="bezahltVon" value="${escapeHtml(f.bezahltVon)}" /></label>
+      <label><span><i class="ti ti-tag"></i> Kategorie</span><input type="text" name="kategorie" value="${escapeHtml(f.kategorie)}" placeholder="z. B. Verpflegung" /></label>
+      <label><span><i class="ti ti-user"></i> Bezahlt von</span><input type="text" name="bezahltVon" value="${escapeHtml(f.bezahltVon)}" /></label>
     </div>
-    <label>Notizen<textarea name="notizen" rows="2">${escapeHtml(f.notizen)}</textarea></label>
+    <label><span><i class="ti ti-notes"></i> Notizen</span><textarea name="notizen" rows="2">${escapeHtml(f.notizen)}</textarea></label>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="cancel-finanz" class="secondary">Abbrechen</button>
@@ -4106,12 +4135,12 @@ function renderStromladenTab(el, trip) {
     form.className = "field-form";
     form.innerHTML = `
       <div class="field-row">
-        <label>Währung<input type="text" name="waehrung" value="${escapeHtml(s.waehrung)}" style="max-width:70px" /></label>
-        <label>Strompreis (/kWh)<input type="number" step="0.01" name="strompreis" value="${escapeHtml(String(s.strompreis))}" /></label>
+        <label><span><i class="ti ti-currency-dollar"></i> Währung</span><input type="text" name="waehrung" value="${escapeHtml(s.waehrung)}" style="max-width:70px" /></label>
+        <label><span><i class="ti ti-cash"></i> Strompreis (/kWh)</span><input type="number" step="0.01" name="strompreis" value="${escapeHtml(String(s.strompreis))}" /></label>
       </div>
       <div class="field-row">
-        <label>Batteriekapazität (kWh)<input type="number" step="0.1" name="batteriekapazitaet" value="${escapeHtml(String(s.batteriekapazitaet))}" /></label>
-        <label>Ladeverlust (%)<input type="number" step="1" name="ladeverlustProzent" value="${escapeHtml(String(s.ladeverlustProzent))}" /></label>
+        <label><span><i class="ti ti-battery-charging"></i> Batteriekapazität (kWh)</span><input type="number" step="0.1" name="batteriekapazitaet" value="${escapeHtml(String(s.batteriekapazitaet))}" /></label>
+        <label><span><i class="ti ti-battery-charging"></i> Ladeverlust (%)</span><input type="number" step="1" name="ladeverlustProzent" value="${escapeHtml(String(s.ladeverlustProzent))}" /></label>
       </div>
       <div class="form-actions"><button type="submit"><i class="ti ti-check"></i> Speichern</button></div>
     `;
@@ -4194,17 +4223,17 @@ function renderStromladenFormInto(container, trip, s, onChange) {
   form.className = "field-form panel";
   form.innerHTML = `
     <div class="field-row">
-      <label>Datum<input type="date" name="datum" value="${escapeHtml(eintrag.datum)}" /></label>
-      <label>Ort / Ladestation<input type="text" name="ort" value="${escapeHtml(eintrag.ort)}" /></label>
+      <label><span><i class="ti ti-calendar"></i> Datum</span><input type="date" name="datum" value="${escapeHtml(eintrag.datum)}" /></label>
+      <label><span><i class="ti ti-plug"></i> Ort / Ladestation</span><input type="text" name="ort" value="${escapeHtml(eintrag.ort)}" /></label>
     </div>
     <div class="field-row">
-      <label>Start %<input type="number" step="1" min="0" max="100" name="startProzent" value="${escapeHtml(String(eintrag.startProzent))}" /></label>
-      <label>Ende %<input type="number" step="1" min="0" max="100" name="endeProzent" value="${escapeHtml(String(eintrag.endeProzent))}" /></label>
+      <label><span><i class="ti ti-battery-charging"></i> Start %</span><input type="number" step="1" min="0" max="100" name="startProzent" value="${escapeHtml(String(eintrag.startProzent))}" /></label>
+      <label><span><i class="ti ti-battery-charging"></i> Ende %</span><input type="number" step="1" min="0" max="100" name="endeProzent" value="${escapeHtml(String(eintrag.endeProzent))}" /></label>
     </div>
     <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
       <input type="checkbox" name="bezahlt" ${eintrag.bezahlt ? "checked" : ""} /> Bezahlt
     </label>
-    <label>Bemerkung<textarea name="bemerkung" rows="2">${escapeHtml(eintrag.bemerkung)}</textarea></label>
+    <label><span><i class="ti ti-message-2"></i> Bemerkung</span><textarea name="bemerkung" rows="2">${escapeHtml(eintrag.bemerkung)}</textarea></label>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="cancel-ladung" class="secondary">Abbrechen</button>
@@ -4336,13 +4365,13 @@ function renderRatgeberForm(katalog, onChange) {
   const form = document.createElement("form");
   form.className = "field-form";
   form.innerHTML = `
-    <label>Bereich<input type="text" name="bereich" value="${escapeHtml(r.bereich)}" placeholder="z. B. Gesundheit &amp; Notfall" required /></label>
-    <label>Thema<input type="text" name="thema" value="${escapeHtml(r.thema)}" required /></label>
-    <label>Was du wissen musst<textarea name="wasDuWissenMusst" rows="4">${escapeHtml(r.wasDuWissenMusst)}</textarea></label>
-    <label>Link<input type="url" name="link" value="${escapeHtml(r.link)}" placeholder="https://..." /></label>
+    <label><span><i class="ti ti-category"></i> Bereich</span><input type="text" name="bereich" value="${escapeHtml(r.bereich)}" placeholder="z. B. Gesundheit &amp; Notfall" required /></label>
+    <label><span><i class="ti ti-bulb"></i> Thema</span><input type="text" name="thema" value="${escapeHtml(r.thema)}" required /></label>
+    <label><span><i class="ti ti-info-circle"></i> Was du wissen musst</span><textarea name="wasDuWissenMusst" rows="4">${escapeHtml(r.wasDuWissenMusst)}</textarea></label>
+    <label><span><i class="ti ti-link"></i> Link</span><input type="url" name="link" value="${escapeHtml(r.link)}" placeholder="https://..." /></label>
     <div class="field-row">
-      <label>Quelle<input type="text" name="quelle" value="${escapeHtml(r.quelle)}" /></label>
-      <label>Zuletzt geprüft<input type="date" name="zuletztGeprueft" value="${escapeHtml(r.zuletztGeprueft)}" /></label>
+      <label><span><i class="ti ti-link"></i> Quelle</span><input type="text" name="quelle" value="${escapeHtml(r.quelle)}" /></label>
+      <label><span><i class="ti ti-list-check"></i> Zuletzt geprüft</span><input type="date" name="zuletztGeprueft" value="${escapeHtml(r.zuletztGeprueft)}" /></label>
     </div>
     <div class="form-actions">
       <button type="submit"><i class="ti ti-check"></i> Speichern</button>
@@ -4478,14 +4507,14 @@ function renderRueckblickTab(el, trip) {
   const r = ensureRueckblick(trip);
 
   const felder = [
-    { key: "toll", label: "Was war besonders toll?" },
-    { key: "andersMachen", label: "Was würden wir nächstes Mal anders machen?" },
-    { key: "packlisteFehlte", label: "Packliste: Was hat gefehlt?" },
-    { key: "packlisteUnnoetig", label: "Packliste: Was war unnötig / zu viel dabei?" },
-    { key: "lieblingsOrt", label: "Lieblings-Restaurant / -Ort / -Aktivität" },
-    { key: "tipps", label: "Tipps für nächstes Mal (Timing, Route, Reservationen ...)" },
-    { key: "fotosLink", label: "Fotos / Videos - Link/Ablageort" },
-    { key: "gesamtkosten", label: "Gesamtkosten (Bauchgefühl vs. Budget)" },
+    { key: "toll", icon: "ti-thumb-up", label: "Was war besonders toll?" },
+    { key: "andersMachen", icon: "ti-arrows-shuffle", label: "Was würden wir nächstes Mal anders machen?" },
+    { key: "packlisteFehlte", icon: "ti-backpack", label: "Packliste: Was hat gefehlt?" },
+    { key: "packlisteUnnoetig", icon: "ti-circle-minus", label: "Packliste: Was war unnötig / zu viel dabei?" },
+    { key: "lieblingsOrt", icon: "ti-heart", label: "Lieblings-Restaurant / -Ort / -Aktivität" },
+    { key: "tipps", icon: "ti-bulb", label: "Tipps für nächstes Mal (Timing, Route, Reservationen ...)" },
+    { key: "fotosLink", icon: "ti-camera", label: "Fotos / Videos - Link/Ablageort" },
+    { key: "gesamtkosten", icon: "ti-cash", label: "Gesamtkosten (Bauchgefühl vs. Budget)" },
   ];
 
   el.innerHTML = `
@@ -4498,9 +4527,9 @@ function renderRueckblickTab(el, trip) {
   const form = document.createElement("form");
   form.className = "field-form panel";
   form.innerHTML = felder.map((f) => `
-    <label>${escapeHtml(f.label)}<textarea name="${f.key}" rows="2">${escapeHtml(r[f.key] || "")}</textarea></label>
+    <label><span><i class="ti ${f.icon || "ti-pencil"}"></i> ${escapeHtml(f.label)}</span><textarea name="${f.key}" rows="2">${escapeHtml(r[f.key] || "")}</textarea></label>
   `).join("") + `
-    <label>Nochmals hin?
+    <label><span><i class="ti ti-refresh"></i> Nochmals hin?</span>
       <select name="nochmalsHin">
         <option value="">-</option>
         <option value="Ja" ${r.nochmalsHin === "Ja" ? "selected" : ""}>Ja</option>
@@ -4593,9 +4622,15 @@ function renderNotizenTab(el, trip) {
     delBtn.title = "Löschen";
     delBtn.onclick = (e) => {
       e.stopPropagation();
+      const pos = trip.notizen.findIndex((x) => x.id === n.id);
       trip.notizen = trip.notizen.filter((x) => x.id !== n.id);
       saveChange();
       renderNotizenTab(el, trip);
+      showUndoToast("Notiz gelöscht", () => {
+        trip.notizen.splice(Math.min(Math.max(pos, 0), trip.notizen.length), 0, n);
+        saveChange();
+        render();
+      });
     };
     row.appendChild(delBtn);
 
@@ -4810,11 +4845,17 @@ function renderTodoVorlageTab(el) {
         del.innerHTML = '<i class="ti ti-trash"></i>';
         del.onclick = (e) => {
           e.stopPropagation();
-          if (!confirm('"' + v.text + '" wirklich aus der Vorlage löschen?')) return;
           const data = getData();
+          const pos = data.todoVorlage.findIndex((x) => x.id === v.id);
           data.todoVorlage = data.todoVorlage.filter((x) => x.id !== v.id);
           saveChange();
           reload();
+          showUndoToast('"' + v.text + '" gelöscht', () => {
+            const d2 = getData();
+            d2.todoVorlage.splice(Math.min(Math.max(pos, 0), d2.todoVorlage.length), 0, v);
+            saveChange();
+            render();
+          });
         };
         row.appendChild(del);
         sec.appendChild(row);
@@ -4880,10 +4921,13 @@ function injectAddBar() {
   const trip = getCurrentTrip();
   const neutral = !trip && getData().ferien.length > 0;
   const actions = getAddActions(currentTab, trip).filter((a) => a.run || findAddBtn(a.sel, a.text));
-  if (!actions.length && !neutral) { bar.classList.add("hidden"); return; }
+  const hatZurueck = tabHistory.length > 0;
+  if (!actions.length && !neutral && !hatZurueck) { bar.classList.add("hidden"); return; }
   const def = TAB_DEFS[currentTab] || { icon: "ti-settings", label: "Einstellungen" };
   bar.classList.remove("hidden");
-  bar.innerHTML = `<span class="tab-add-title"><i class="ti ${def.icon}"></i> ${escapeHtml(def.label)}</span>${neutral ? '<button type="button" class="tab-add-info" title="Was ist die Allgemein-Ansicht?"><i class="ti ti-info-circle"></i> Allgemein-Ansicht</button>' : ""}<span class="tab-add-spacer"></span>`;
+  bar.innerHTML = `${hatZurueck ? '<button type="button" class="tab-back-btn" title="Zurück"><i class="ti ti-arrow-left"></i></button>' : ""}<span class="tab-add-title"><i class="ti ${def.icon}"></i> ${escapeHtml(def.label)}</span>${neutral ? '<button type="button" class="tab-add-info" title="Was ist die Allgemein-Ansicht?"><i class="ti ti-info-circle"></i> Allgemein-Ansicht</button>' : ""}<span class="tab-add-spacer"></span>`;
+  const back = bar.querySelector(".tab-back-btn");
+  if (back) back.onclick = () => history.back();
   const info = bar.querySelector(".tab-add-info");
   if (info) info.onclick = openNeutralInfoModal;
   actions.forEach((a) => {
@@ -4895,6 +4939,54 @@ function injectAddBar() {
     b.onclick = a.run ? a.run : () => { const x = findAddBtn(a.sel, a.text); if (x) x.click(); };
     bar.appendChild(b);
   });
+}
+
+// ===========================================================
+// ZURUECK-NAVIGATION + RUECKGAENGIG-HINWEIS (Toast)
+// ===========================================================
+const tabHistory = [];
+
+/** Tab wechseln und den Wechsel in der Browser-Chronik merken, damit der
+ *  Zurück-Button (und die Zurück-Taste am Handy) zum vorigen Register führt. */
+function navigateTab(tab) {
+  if (tab === currentTab) return;
+  tabHistory.push(currentTab);
+  try { history.pushState({ tab }, ""); } catch (e) { /* ignorieren */ }
+  currentTab = tab;
+  render();
+}
+
+try { history.replaceState({ tab: currentTab }, ""); } catch (e) { /* ignorieren */ }
+window.addEventListener("popstate", (e) => {
+  const tab = e.state && e.state.tab;
+  if (!tab) return;
+  if (tabHistory.length) tabHistory.pop();
+  currentTab = tab;
+  closeModal();
+  render();
+});
+
+let undoToastTimer = null;
+/** Zeigt unten einen kurzen Hinweis mit "Rückgängig"-Button (ca. 9 Sekunden). */
+function showUndoToast(message, undoFn) {
+  let el = document.getElementById("undo-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "undo-toast";
+    el.className = "undo-toast";
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '<span class="undo-toast-text"></span><button type="button" class="undo-toast-btn"><i class="ti ti-arrow-back-up"></i> Rückgängig</button>';
+  el.querySelector(".undo-toast-text").textContent = message;
+  el.classList.add("visible");
+  const hide = () => el.classList.remove("visible");
+  el.querySelector(".undo-toast-btn").onclick = () => {
+    hide();
+    if (undoToastTimer) clearTimeout(undoToastTimer);
+    undoFn();
+  };
+  if (undoToastTimer) clearTimeout(undoToastTimer);
+  undoToastTimer = setTimeout(hide, 9000);
 }
 
 // ===========================================================
