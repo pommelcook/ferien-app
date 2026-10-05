@@ -103,7 +103,8 @@ function getSortableTabs() {
 }
 
 function renderNavBars() {
-  const order = [...FIXED_FIRST_TABS, ...getSortableTabs()];
+  const hatFerien = !!getCurrentTrip();
+  const order = [...FIXED_FIRST_TABS, ...getSortableTabs()].filter((id) => hatFerien || NEUTRAL_TABS.includes(id));
   const buttonsHtml = order.map((id) => {
     const def = TAB_DEFS[id];
     if (!def) return "";
@@ -192,10 +193,13 @@ function getCurrentTrip() {
  *  (data.lastTripId), damit beim nächsten App-Start - falls gerade keine
  *  Ferien datumsmässig aktuell läuft - wieder dieselbe Ferien vorausgewählt
  *  wird. */
+// Spezialwert für data.lastTripId: "Allgemein-Ansicht" (keine Ferien gewählt).
+const NEUTRAL_TRIP_ID = "__neutral__";
+
 function setCurrentTrip(id) {
-  currentTripId = id;
+  currentTripId = id || null;
   const data = getData();
-  data.lastTripId = id;
+  data.lastTripId = id || NEUTRAL_TRIP_ID;
   saveChange();
 }
 
@@ -249,6 +253,8 @@ function determineInitialTripId(data) {
   if (!data.ferien.length) return null;
   const dateCurrent = findDateCurrentTrip(data);
   if (dateCurrent) return dateCurrent.id;
+  // Zuletzt in der Allgemein-Ansicht gewesen und gerade läuft keine Ferien: neutral starten.
+  if (data.lastTripId === NEUTRAL_TRIP_ID) return null;
   if (data.lastTripId && data.ferien.some((f) => f.id === data.lastTripId)) return data.lastTripId;
   return data.ferien[0].id;
 }
@@ -273,10 +279,10 @@ function renderTripSwitcher() {
     return a.von.localeCompare(b.von);
   });
 
-  select.innerHTML = sorted.map((f) => `<option value="${f.id}">${escapeHtml(f.titel)}</option>`).join("");
-  select.value = currentTripId;
+  select.innerHTML = '<option value="">Allgemein (ohne Ferien)</option>' + sorted.map((f) => '<option value="' + f.id + '">' + escapeHtml(f.titel) + '</option>').join("");
+  select.value = currentTripId || "";
   select.onchange = () => {
-    setCurrentTrip(select.value);
+    setCurrentTrip(select.value || null);
     render();
   };
 }
@@ -394,8 +400,14 @@ function initScrollTopButton() {
 // ===========================================================
 
 function render() {
+  renderMain();
+  injectAddBar();
+}
+
+function renderMain() {
   const trip = getCurrentTrip();
-  document.getElementById("header-title").textContent = trip ? trip.titel : "Ferien-App";
+  if (!trip && currentTab !== "einstellungen" && !NEUTRAL_TABS.includes(currentTab)) currentTab = "start";
+  document.getElementById("header-title").textContent = trip ? trip.titel : (getData().ferien.length ? "Allgemein (ohne Ferien)" : "Ferien-App");
   const headerDate = document.getElementById("header-date");
   if (headerDate) {
     headerDate.textContent = trip && trip.von
@@ -422,6 +434,7 @@ function render() {
   if (currentTab === "anleitung") return renderAnleitungTab(el);
   if (currentTab === "rueckblick") return renderRueckblickTab(el, trip);
   if (currentTab === "notizen") return renderNotizenTab(el, trip);
+  if (!trip && currentTab === "todo") return renderTodoVorlageTab(el);
 
   if (!trip) {
     el.innerHTML = `<p class="hint">Noch keine Ferien angelegt.<br />Wechsle zum Tab "Ferien", um eine anzulegen.</p>`;
@@ -436,6 +449,10 @@ function render() {
 // ===========================================================
 
 function renderStartTab(el, trip) {
+  if (!trip && getData().ferien.length) {
+    el.innerHTML = '<section class="panel">' + neutralExplanationHtml() + '</section>';
+    return;
+  }
   if (!trip) {
     el.innerHTML = `<p class="hint">Noch keine Ferien angelegt.<br />Wechsle zum Tab "Ferien", um eine anzulegen.</p>`;
     return;
@@ -908,76 +925,18 @@ function reisetagItemRow(item, onChange, listKey) {
  *  zentrale Vorlage, siehe ensureArtikelDatenbank()/ensureTodoVorlage()). */
 function renderReisetagQuickAddForm(trip, key, offset, onChange) {
   const isTodo = key === "todo";
-  const wrap = document.createElement("form");
-  wrap.className = "add-form";
-  wrap.style.marginTop = "10px";
-  wrap.innerHTML = `
-    <input type="text" placeholder="${isTodo ? "Neues To-Do für diesen Tag ..." : "Neuer Artikel ..."}" required />
-    <button type="submit"><i class="ti ti-plus"></i></button>
-  `;
-  const katalogRtAdd = ensureVorlageFuerListKey(key);
-  const alleKategorienRtAdd = [...katalogRtAdd.map((k) => k.kategorie), ...(trip[key] || []).map((i) => i.kategorie)];
-  const neuKategorieRtAddDefault = alleKategorienRtAdd[0] || "Allgemein";
-  const kategorieFieldRt = document.createElement("div");
-  kategorieFieldRt.style.marginTop = "6px";
-  kategorieFieldRt.innerHTML = kategorieDatalistHtml("reisetag-add-kategorie-neu", alleKategorienRtAdd, neuKategorieRtAddDefault);
-  wrap.appendChild(kategorieFieldRt);
-  wireKategorieBadges("reisetag-add-kategorie-neu", wrap);
-  const chipRow = document.createElement("div");
-  chipRow.className = "chip-row";
-  chipRow.style.marginTop = "6px";
-  const chipEinmalig = document.createElement("button");
-  chipEinmalig.type = "button";
-  chipEinmalig.className = "chip" + (reisetagNeuErfassungsTyp[key] === "einmalig" ? " active" : "");
-  chipEinmalig.innerHTML = `<i class="ti ti-bolt"></i>Einmalig`;
-  const chipFix = document.createElement("button");
-  chipFix.type = "button";
-  chipFix.className = "chip" + (reisetagNeuErfassungsTyp[key] === "fix" ? " active" : "");
-  chipFix.innerHTML = `<i class="ti ti-pin"></i>Fix (in Vorlage übernehmen)`;
-  chipEinmalig.onclick = () => {
-    reisetagNeuErfassungsTyp[key] = "einmalig";
-    chipEinmalig.classList.add("active");
-    chipFix.classList.remove("active");
-  };
-  chipFix.onclick = () => {
-    reisetagNeuErfassungsTyp[key] = "fix";
-    chipFix.classList.add("active");
-    chipEinmalig.classList.remove("active");
-  };
-  chipRow.appendChild(chipEinmalig);
-  chipRow.appendChild(chipFix);
-  wrap.appendChild(chipRow);
-  wrap.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const input = wrap.querySelector("input[type=text]");
-    const text = input.value.trim();
-    if (!text) return;
-    const erfassungsTyp = reisetagNeuErfassungsTyp[key];
-    const kategorie = (wrap.querySelector("#reisetag-add-kategorie-neu").value || "").trim() || "Allgemein";
-    const newItem = {
-      id: "i" + Date.now() + Math.random().toString(36).slice(2, 6),
-      text,
-      erledigt: false,
-      kategorie,
-      sort: trip[key].length,
-      erfassungsTyp,
-    };
-    if (isTodo) newItem.termin = offset;
-    trip[key].push(newItem);
-    if (erfassungsTyp === "fix") {
-      if (key === "packliste") {
-        const katalog = ensureArtikelDatenbank();
-        katalog.push({ id: "art" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, bemerkung: "", merkmale: [], check: "offen", spontan: true });
-      } else {
-        const vorlage = ensureTodoVorlage();
-        vorlage.push({ id: "tv" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, merkmale: [], check: "offen", spontan: true });
-      }
-    }
-    saveChange();
-    onChange();
+  return buildNeuerEintragBox({
+    key,
+    trip,
+    placeholder: isTodo ? "Neues To-Do für diesen Tag ..." : "Neuer Artikel ...",
+    idSuffix: "reisetag-" + key + "-" + String(offset),
+    fixedTermin: isTodo,
+    offset: isTodo ? offset : undefined,
+    compact: true,
+    typStore: { get: () => reisetagNeuErfassungsTyp[key], set: (v) => { reisetagNeuErfassungsTyp[key] = v; } },
+    onAdded: onChange,
+    reload: onChange,
   });
-
-  return wrap;
 }
 
 // ===========================================================
@@ -2000,31 +1959,13 @@ function renderListTab(el, trip, key, icon, placeholder) {
       </button>
     </div>
     <div id="cat-container"></div>
-    <form id="add-form" class="add-form">
-      <input type="text" placeholder="${placeholder}" required />
-      ${isTodo ? `<input type="number" id="termin-input" placeholder="Tage vor Abreise" title="Tage vor Abreise (z. B. -5, 0 = Abreisetag), optional" style="max-width:110px;" />` : ""}
-      <button type="submit"><i class="ti ti-plus"></i></button>
-    </form>
-    <p class="hint-small" style="margin:6px 0 2px">Kategorie für den neuen Eintrag:</p>
-    <div id="add-form-kategorie-field"></div>
-    <div class="chip-row" id="erfassungstyp-row" style="margin-top:6px;">
-      <button type="button" class="chip erfassungstyp-chip active" data-typ="einmalig"><i class="ti ti-bolt"></i>Einmalig</button>
-      <button type="button" class="chip erfassungstyp-chip" data-typ="fix"><i class="ti ti-pin"></i>Fix (in Vorlage übernehmen)</button>
-    </div>
+    <div id="neuer-eintrag-container"></div>
   `;
 
   document.querySelectorAll(".quick-filter-btn").forEach((btn) => {
     btn.onclick = () => {
       filterMode[key] = btn.dataset.filter;
       renderListTab(el, trip, key, icon, placeholder);
-    };
-  });
-
-  let neuErfassungsTyp = "einmalig";
-  document.querySelectorAll(".erfassungstyp-chip").forEach((chip) => {
-    chip.onclick = () => {
-      neuErfassungsTyp = chip.dataset.typ;
-      document.querySelectorAll(".erfassungstyp-chip").forEach((c) => c.classList.toggle("active", c === chip));
     };
   });
 
@@ -2051,58 +1992,16 @@ function renderListTab(el, trip, key, icon, placeholder) {
     renderListTab(el, trip, key, icon, placeholder);
   };
 
-  const katalogAdd = ensureVorlageFuerListKey(key);
-  const alleKategorienAdd = [...katalogAdd.map((k) => k.kategorie), ...groups.map((g) => g.name)];
-  const neuKategorieAddDefault = (groups.map((g) => g.name)[0]) || "Allgemein";
-  document.getElementById("add-form-kategorie-field").innerHTML = kategorieDatalistHtml("add-form-kategorie-neu", alleKategorienAdd, neuKategorieAddDefault);
-  wireKategorieBadges("add-form-kategorie-neu");
-
   const catContainer = document.getElementById("cat-container");
   groups.forEach((g) => {
     catContainer.appendChild(renderCategory(trip, key, g.name, g.items, isTodo, () => renderListTab(el, trip, key, icon, placeholder)));
   });
 
-  document.getElementById("add-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const input = e.target.querySelector("input[type=text]");
-    const text = input.value.trim();
-    if (!text) return;
-
-    const kategorie = (document.getElementById("add-form-kategorie-neu").value || "").trim() || "Allgemein";
-
-    const newItem = {
-      id: "i" + Date.now() + Math.random().toString(36).slice(2, 6),
-      text,
-      erledigt: false,
-      kategorie,
-      sort: items.length,
-      erfassungsTyp: neuErfassungsTyp,
-    };
-
-    if (isTodo) {
-      const terminInput = document.getElementById("termin-input");
-      if (terminInput && terminInput.value !== "") {
-        newItem.termin = Number(terminInput.value);
-      }
-    }
-
-    items.push(newItem);
-
-    // "Fix" erfasste Punkte landen zusätzlich in der zentralen Vorlage,
-    // damit sie auch bei künftigen Ferien automatisch wieder auftauchen.
-    if (neuErfassungsTyp === "fix") {
-      if (key === "packliste") {
-        const katalog = ensureArtikelDatenbank();
-        katalog.push({ id: "art" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, bemerkung: "", merkmale: [], check: "offen", spontan: true });
-      } else if (key === "todo") {
-        const vorlage = ensureTodoVorlage();
-        vorlage.push({ id: "tv" + Date.now() + Math.random().toString(36).slice(2, 6), kategorie, text, merkmale: [], check: "offen", spontan: true });
-      }
-    }
-
-    saveChange();
-    renderListTab(el, trip, key, icon, placeholder);
-  });
+  const rerenderListe = () => renderListTab(el, trip, key, icon, placeholder);
+  document.getElementById("neuer-eintrag-container").appendChild(buildNeuerEintragBox({
+    key, trip, placeholder, idSuffix: "inline", onAdded: rerenderListe, reload: rerenderListe,
+    extraKategorien: groups.map((g) => g.name),
+  }));
 }
 
 /** Gruppiert Items entweder nach "kategorie" (Text) oder "termin" (Tage vor Abreise),
@@ -4717,6 +4616,285 @@ function renderNotizenTab(el, trip) {
     renderNotizenTab(el, trip);
   };
   el.appendChild(newBtn);
+}
+
+// ===========================================================
+// ALLGEMEIN-ANSICHT (keine Ferien gewählt) + ERFASSEN-LEISTE
+// ===========================================================
+
+// Register, die auch ohne gewählte Ferien Sinn machen (alles andere gehört zu einer Ferien).
+const NEUTRAL_TABS = ["start", "ferien", "todo", "artikel", "merkmale", "ratgeber", "anleitung"];
+
+function neutralExplanationHtml() {
+  const sichtbar = NEUTRAL_TABS.filter((id) => id !== "start").map((id) => TAB_DEFS[id].label).concat(["Einstellungen"]);
+  const versteckt = Object.keys(TAB_DEFS).filter((id) => !NEUTRAL_TABS.includes(id)).map((id) => TAB_DEFS[id].label);
+  return `
+    <h2><i class="ti ti-world"></i> Allgemein-Ansicht (keine Ferien gewählt)</h2>
+    <p>Mit der Auswahl "Allgemein (ohne Ferien)" im Ferien-Dropdown arbeitest du an dem, was für <strong>alle</strong> Ferien gilt - ohne dass eine bestimmte Reise im Weg steht. Damit kannst du die Artikel-DB, die To-Do-Vorlage und andere allgemeine Sachen einsehen und pflegen.</p>
+    <p><strong>Sichtbar:</strong> ${sichtbar.map(escapeHtml).join(", ")}. Das Register "To-Do" zeigt hier die allgemeine To-Do-Vorlage.</p>
+    <p><strong>Ausgeblendet</strong> (gehören zu einer bestimmten Ferien): ${versteckt.map(escapeHtml).join(", ")}.</p>
+    <p class="hint-small">Wähle oben im Dropdown eine Ferien, um diese Register wieder zu sehen. Beim Öffnen startet die App nur dann in dieser Ansicht, wenn gerade keine Ferien laufen und du sie zuletzt so verlassen hast. Läuft eine Ferien, öffnet die App direkt diese.</p>
+  `;
+}
+
+function openNeutralInfoModal() {
+  const wrap = document.createElement("div");
+  wrap.innerHTML = neutralExplanationHtml();
+  openModal(wrap, () => {});
+}
+
+/** Gemeinsame Erfassungs-Box (Packliste, To-Do, Reisetag, To-Do-Vorlage, Popup):
+ *  Text, Termin, Kategorie, Art (einmalig/fix) und "Mit Details ..." als ein
+ *  sichtbar zusammengehörender Block. */
+function buildNeuerEintragBox(cfg) {
+  const key = cfg.key;
+  const isTodo = key === "todo";
+  const vorlageOnly = !!cfg.vorlageOnly;
+  const trip = cfg.trip || null;
+  const katId = "ne-kat-" + (cfg.idSuffix || "x");
+  const typStore = cfg.typStore || null;
+  let typ = typStore ? typStore.get() : "einmalig";
+  if (typ !== "fix") typ = "einmalig";
+
+  const katalog = ensureVorlageFuerListKey(key);
+  const alleKat = [...katalog.map((k) => k.kategorie), ...(cfg.extraKategorien || []), ...(trip ? (trip[key] || []).map((i) => i.kategorie) : [])];
+  const letzte = trip && (trip[key] || []).length ? trip[key][trip[key].length - 1].kategorie : "";
+  const defaultKat = cfg.defaultKategorie || letzte || "Allgemein";
+  const zeigeTermin = isTodo && !vorlageOnly && !cfg.fixedTermin;
+  const titel = cfg.title || (vorlageOnly ? "Neue Vorlage erfassen" : (isTodo ? "Neues To-Do erfassen" : "Neuen Artikel erfassen"));
+  const vorlageName = isTodo ? "To-Do-Vorlage" : "Artikel-Datenbank";
+
+  const form = document.createElement("form");
+  form.className = "neuer-eintrag-box";
+  const mittel = `
+    ${zeigeTermin ? '<div class="ne-field"><span class="ne-field-title"><i class="ti ti-calendar-event"></i> Termin (Tage vor Abreise, optional)</span><input type="number" class="ne-termin" placeholder="z. B. -5, 0 = Abreisetag" /></div>' : ""}
+    <div class="ne-field"><span class="ne-field-title"><i class="ti ti-tag"></i> Kategorie</span><div class="ne-kat"></div></div>
+    ${vorlageOnly ? "" : `<div class="ne-field"><span class="ne-field-title"><i class="ti ti-bolt"></i> Art</span>
+      <div class="chip-row">
+        <button type="button" class="chip ne-typ-chip" data-typ="einmalig"><i class="ti ti-bolt"></i>Einmalig</button>
+        <button type="button" class="chip ne-typ-chip" data-typ="fix"><i class="ti ti-pin"></i>Fix (in Vorlage übernehmen)</button>
+      </div>
+      <span class="hint-small" style="margin:0">Einmalig gilt nur für diese Ferien. Fix landet zusätzlich in der ${vorlageName} und erscheint bei künftigen Ferien.</span></div>`}
+  `;
+  form.innerHTML = `
+    <div class="neuer-eintrag-head"><i class="ti ti-plus"></i> ${escapeHtml(titel)}</div>
+    <div class="ne-field"><span class="ne-field-title"><i class="ti ti-pencil"></i> ${isTodo ? "To-Do" : "Artikel"}</span><input type="text" class="ne-text" placeholder="${escapeHtml(cfg.placeholder || "")}" /></div>
+    ${cfg.compact ? '<details class="ne-more"><summary class="ne-field-title"><i class="ti ti-adjustments"></i> Kategorie, Art ...</summary>' + mittel + '</details>' : mittel}
+    <div class="ne-actions">
+      <button type="submit"><i class="ti ti-plus"></i> Hinzufügen</button>
+      <button type="button" class="secondary ne-details-btn"><i class="ti ti-list-details"></i> Mit Details ...</button>
+    </div>
+  `;
+  form.querySelector(".ne-kat").innerHTML = kategorieDatalistHtml(katId, alleKat, defaultKat);
+  wireKategorieBadges(katId, form);
+
+  const typChips = form.querySelectorAll(".ne-typ-chip");
+  const syncChips = () => typChips.forEach((c) => c.classList.toggle("active", c.dataset.typ === typ));
+  typChips.forEach((c) => { c.onclick = () => { typ = c.dataset.typ; if (typStore) typStore.set(typ); syncChips(); }; });
+  syncChips();
+
+  const erfassen = (mitDetails) => {
+    const textInput = form.querySelector(".ne-text");
+    const text = textInput.value.trim();
+    if (!text) { textInput.focus(); return; }
+    const kategorie = (form.querySelector("#" + katId).value || "").trim() || "Allgemein";
+    const rnd = () => Date.now() + Math.random().toString(36).slice(2, 6);
+    let newItem = null;
+    let dbEntry = null;
+    if (!vorlageOnly) {
+      newItem = { id: "i" + rnd(), text, erledigt: false, kategorie, sort: trip[key].length, erfassungsTyp: typ };
+      if (isTodo) {
+        if (cfg.fixedTermin) newItem.termin = cfg.offset;
+        else {
+          const ti = form.querySelector(".ne-termin");
+          if (ti && ti.value !== "") newItem.termin = Number(ti.value);
+        }
+      }
+      trip[key].push(newItem);
+      if (typ === "fix") {
+        dbEntry = key === "packliste"
+          ? { id: "art" + rnd(), kategorie, text, bemerkung: "", merkmale: [], check: "offen", spontan: true }
+          : { id: "tv" + rnd(), kategorie, text, merkmale: [], check: "offen", spontan: true };
+        katalog.push(dbEntry);
+      }
+    } else {
+      dbEntry = { id: "tv" + rnd(), kategorie, text, merkmale: [], check: "erledigt", checkDatum: new Date().toISOString() };
+      katalog.push(dbEntry);
+    }
+    saveChange();
+    cfg.onAdded();
+    if (!mitDetails) return;
+    if (dbEntry) {
+      if (isTodo) openTodoVorlageEditModal(dbEntry, cfg.reload, newItem || undefined);
+      else {
+        const kat = ensureArtikelDatenbank();
+        editingArtikelId = dbEntry.id;
+        openModal(renderArtikelForm(kat, () => { closeModal(); cfg.reload(); }, dbEntry, newItem || undefined), () => { editingArtikelId = null; });
+      }
+    } else if (newItem) {
+      openLokalBearbeitenModal(newItem, cfg.reload, key);
+    }
+  };
+
+  form.addEventListener("submit", (e) => { e.preventDefault(); erfassen(false); });
+  form.querySelector(".ne-details-btn").onclick = () => erfassen(true);
+  return form;
+}
+
+/** Öffnet die Erfassungs-Box als Popup (für das fixierte Plus oben). */
+function openNeuerEintragModal(opts) {
+  const rerender = opts.rerender || (() => render());
+  const wrap = document.createElement("div");
+  wrap.className = "field-form";
+  openModal(wrap, () => {});
+  const box = buildNeuerEintragBox({
+    key: opts.key,
+    trip: opts.trip,
+    vorlageOnly: opts.vorlageOnly,
+    placeholder: opts.placeholder,
+    title: opts.title,
+    idSuffix: "modal",
+    extraKategorien: opts.extraKategorien,
+    onAdded: () => { closeModal(); rerender(); },
+    reload: rerender,
+  });
+  wrap.appendChild(box);
+  setTimeout(() => { const i = box.querySelector(".ne-text"); if (i) i.focus(); }, 60);
+}
+
+/** To-Do-Register ohne gewählte Ferien: zeigt die allgemeine To-Do-Vorlage. */
+function renderTodoVorlageTab(el) {
+  const vorlage = ensureTodoVorlage();
+  const reload = () => renderTodoVorlageTab(el);
+  el.innerHTML = `
+    <section class="panel">
+      <h2><i class="ti ti-list-check"></i> To-Do-Vorlage (für alle Ferien)</h2>
+      <p class="hint-small">Allgemein-Ansicht: Diese To-Dos werden bei neuen Ferien in deren To-Do-Liste übernommen. Änderungen hier gelten für alle künftigen Ferien. Die To-Do-Liste einer bestimmten Ferien siehst du, sobald du oben im Dropdown eine Ferien wählst.</p>
+      <p class="hint-small" style="margin:0">Total: ${vorlage.length}</p>
+    </section>
+  `;
+  const gruppen = {};
+  vorlage.forEach((v) => { const k = v.kategorie || "Allgemein"; (gruppen[k] = gruppen[k] || []).push(v); });
+  Object.keys(gruppen).sort((a, b) => a.localeCompare(b, "de")).forEach((k) => {
+    const sec = document.createElement("section");
+    sec.className = "panel";
+    const res = collapsibleHeader("todovorlage:" + k, escapeHtml(k) + " (" + gruppen[k].length + ")", reload);
+    sec.appendChild(res.header);
+    if (!res.isCollapsed) {
+      gruppen[k].slice().sort((a, b) => (a.text || "").localeCompare(b.text || "", "de")).forEach((v) => {
+        const row = document.createElement("div");
+        row.className = "item-row";
+        const span = document.createElement("span");
+        span.style.flex = "1";
+        span.innerHTML = (v.prioritaet ? '<i class="ti ti-flag" style="color:var(--amber-dark)"></i> ' : "") + escapeHtml(v.text) + (istCheckOffen(v) ? ' <span class="check-badge" title="Noch nicht geprüft"><i class="ti ti-list-check"></i> Check offen</span>' : "");
+        span.onclick = () => openTodoVorlageEditModal(v, reload);
+        row.appendChild(span);
+        const dup = document.createElement("button");
+        dup.type = "button";
+        dup.className = "icon-btn";
+        dup.title = "Duplizieren";
+        dup.innerHTML = '<i class="ti ti-copy"></i>';
+        dup.onclick = (e) => {
+          e.stopPropagation();
+          const kopie = { ...v, id: "tv" + Date.now() + Math.random().toString(36).slice(2, 6), text: v.text + " (Kopie)", check: "offen" };
+          delete kopie.checkDatum;
+          vorlage.push(kopie);
+          saveChange();
+          reload();
+        };
+        row.appendChild(dup);
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "icon-btn danger";
+        del.title = "Löschen";
+        del.innerHTML = '<i class="ti ti-trash"></i>';
+        del.onclick = (e) => {
+          e.stopPropagation();
+          if (!confirm('"' + v.text + '" wirklich aus der Vorlage löschen?')) return;
+          const data = getData();
+          data.todoVorlage = data.todoVorlage.filter((x) => x.id !== v.id);
+          saveChange();
+          reload();
+        };
+        row.appendChild(del);
+        sec.appendChild(row);
+      });
+    }
+    el.appendChild(sec);
+  });
+  const holder = document.createElement("div");
+  holder.appendChild(buildNeuerEintragBox({
+    key: "todo", trip: null, vorlageOnly: true, placeholder: "Neue To-Do-Vorlage ...", idSuffix: "vorlage",
+    extraKategorien: Object.keys(gruppen), onAdded: reload, reload,
+  }));
+  el.appendChild(holder);
+}
+
+function findAddBtn(sel, text) {
+  const root = document.getElementById("tab-content");
+  if (!root) return null;
+  if (sel) return root.querySelector(sel);
+  return Array.from(root.querySelectorAll("button")).find((b) => b.textContent.trim() === text) || null;
+}
+
+function getAddActions(tab, trip) {
+  const click = (label, sel, text) => ({ label, sel, text });
+  const listModal = (label, key) => ({
+    label,
+    run: () => openNeuerEintragModal({
+      key,
+      trip: trip || null,
+      vorlageOnly: !trip,
+      placeholder: key === "todo" ? "Neuer Punkt ..." : "Neuer Artikel ...",
+      title: key === "todo" ? "Neues To-Do erfassen" : "Neuen Artikel erfassen",
+    }),
+  });
+  if (tab === "artikel") return [click("Artikel", "#new-artikel-button")];
+  if (tab === "merkmale") return [click("Merkmal", "#new-merkmal-button")];
+  if (tab === "ratgeber") return [click("Eintrag", "#new-ratgeber-button")];
+  if (tab === "ferien") return [click("Ferien", null, "Neue Ferien"), click("Unterkunft", null, "Neue Unterkunft"), click("Etappe", null, "Neue Etappe")];
+  if (!trip && tab !== "todo") return [];
+  if (tab === "todo") return [listModal("To-Do", "todo")];
+  if (tab === "packliste") return [listModal("Artikel", "packliste")];
+  if (tab === "reisetag") return [listModal("To-Do", "todo"), listModal("Artikel", "packliste")];
+  if (tab === "programm") return [click("Tagesplan", "#new-tagesplan-button"), click("Idee", "#new-idee-button")];
+  if (tab === "finanzen") return [click("Ausgabe", "#new-finanz-button")];
+  if (tab === "stromladen") return [click("Ladung", null, "Neue Ladung")];
+  if (tab === "notizen") return [click("Notiz", "#new-notiz-button")];
+  return [];
+}
+
+/** Fixierte Leiste oben (bleibt beim Scrollen sichtbar) mit Plus-Button(s)
+ *  zum schnellen Erfassen - öffnet das jeweilige Erfassen-Popup. */
+function injectAddBar() {
+  const app = document.getElementById("app-screen");
+  if (!app) return;
+  let bar = document.getElementById("tab-add-bar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "tab-add-bar";
+    bar.className = "tab-add-bar hidden";
+    const header = app.querySelector("header");
+    app.insertBefore(bar, header ? header.nextSibling : app.firstChild);
+  }
+  const trip = getCurrentTrip();
+  const neutral = !trip && getData().ferien.length > 0;
+  const actions = getAddActions(currentTab, trip).filter((a) => a.run || findAddBtn(a.sel, a.text));
+  if (!actions.length && !neutral) { bar.classList.add("hidden"); return; }
+  const def = TAB_DEFS[currentTab] || { icon: "ti-settings", label: "Einstellungen" };
+  bar.classList.remove("hidden");
+  bar.innerHTML = `<span class="tab-add-title"><i class="ti ${def.icon}"></i> ${escapeHtml(def.label)}</span>${neutral ? '<button type="button" class="tab-add-info" title="Was ist die Allgemein-Ansicht?"><i class="ti ti-info-circle"></i> Allgemein-Ansicht</button>' : ""}<span class="tab-add-spacer"></span>`;
+  const info = bar.querySelector(".tab-add-info");
+  if (info) info.onclick = openNeutralInfoModal;
+  actions.forEach((a) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "tab-add-btn";
+    b.title = "Neu erfassen: " + a.label;
+    b.innerHTML = '<i class="ti ti-plus"></i> ' + escapeHtml(a.label);
+    b.onclick = a.run ? a.run : () => { const x = findAddBtn(a.sel, a.text); if (x) x.click(); };
+    bar.appendChild(b);
+  });
 }
 
 // ===========================================================
