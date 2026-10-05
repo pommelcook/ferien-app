@@ -2183,16 +2183,20 @@ function openTodoVorlageEditModal(entry, onSaved, linkedItem) {
       <button type="button" id="vorlage-edit-save-top"><i class="ti ti-check"></i> Speichern</button>
     </div>
     <h3><i class="ti ti-database"></i> To-Do-Vorlage bearbeiten</h3>
-    <p class="hint-small">Gilt für alle Ferien, auch künftige.</p>
+    <p class="hint-small">Gilt für alle Ferien, auch künftige (zentrale To-Do-Vorlage). Änderungen nur für die aktuellen Ferien sind über die lokale Bearbeitung möglich.</p>
+    <details class="popup-section" open><summary><i class="ti ti-pencil"></i> Eintrag</summary>
     <label><span><i class="ti ti-pencil"></i> Text</span><input type="text" id="vorlage-edit-text" class="field-emphasized" value="${escapeHtml(entry.text)}" /></label>
     <label><span><i class="ti ti-tag"></i> Kategorie</span></label>
     <div id="vorlage-edit-kategorie-field"></div>
+    </details>
+    <details class="popup-section" open><summary><i class="ti ti-list-check"></i> Prüfung &amp; Priorität</summary>
     ${entry.spontan ? `<p class="hint-small" style="margin:0 0 4px"><i class="ti ti-sparkles"></i> Spontan über Packliste/Reisetag erfasst - bitte Angaben prüfen und danach "Check erledigt" setzen.</p>` : ""}
     <div class="checkbox-inline-row">
       <label class="checkbox-inline"><input type="checkbox" id="vorlage-edit-check" ${!istCheckOffen(entry) ? "checked" : ""} /> <i class="ti ti-list-check"></i> Check erledigt (geprüft)</label>
       <label class="checkbox-inline"><input type="checkbox" id="vorlage-edit-prioritaet" ${(linkedItem ? linkedItem.prioritaet : entry.prioritaet) ? "checked" : ""} /> <i class="ti ti-flag"></i> Priorität (Standard)</label>
     </div>
     ${entry.checkDatum ? `<p class="hint-small" style="margin:-6px 0 4px">Zuletzt geprüft am ${escapeHtml(formatCheckDatum(entry.checkDatum))}</p>` : ""}
+    </details>
     <div class="form-actions">
       <button type="button" id="vorlage-edit-save"><i class="ti ti-check"></i> Speichern</button>
       <button type="button" id="vorlage-edit-duplizieren" class="secondary"><i class="ti ti-copy"></i> Duplizieren</button>
@@ -3586,13 +3590,23 @@ function renderProgrammTab(el, trip) {
   `;
 
   const tpSection = document.createElement("section");
-  tpSection.className = "panel";
+  tpSection.className = "panel prog-plan";
   const tpHeaderResult = collapsibleHeader("programm:tagesplan", `📅 Tagesplan (${tagesplanSorted.length})`, () => renderProgrammTab(el, trip));
   tpSection.appendChild(tpHeaderResult.header);
   const tpHint = document.createElement("p");
   tpHint.className = "hint-small";
   tpHint.textContent = "Konkrete Planung mit Datum - was steht wann an?";
   tpSection.appendChild(tpHint);
+  const ansichtRow = document.createElement("div");
+  ansichtRow.className = "chip-row";
+  [["liste", "ti-list", "Liste"], ["woche", "ti-calendar-week", "Wochenplan"]].forEach(([k, ic, t]) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip" + (programmAnsicht === k ? " active" : "");
+    b.innerHTML = '<i class="ti ' + ic + '"></i>' + t;
+    b.onclick = () => { programmAnsicht = k; renderProgrammTab(el, trip); };
+    ansichtRow.appendChild(b);
+  });
+  tpSection.appendChild(ansichtRow);
   const tpListDiv = document.createElement("div");
   tpListDiv.id = "tagesplan-list";
   if (!tpHeaderResult.isCollapsed) tpSection.appendChild(tpListDiv);
@@ -3608,7 +3622,7 @@ function renderProgrammTab(el, trip) {
   el.appendChild(tpFormContainer);
 
   const ideenSection = document.createElement("section");
-  ideenSection.className = "panel";
+  ideenSection.className = "panel prog-ideen";
   const ideenCountLabel = ideenEtappenFilter === "alle" ? `${ideenAll.length}` : `${ideenSorted.length}/${ideenAll.length}`;
   const ideenHeaderResult = collapsibleHeader("programm:ideen", `💡 Ideensammlung (${ideenCountLabel})`, () => renderProgrammTab(el, trip));
   ideenSection.appendChild(ideenHeaderResult.header);
@@ -3651,7 +3665,8 @@ function renderProgrammTab(el, trip) {
   if (tpList && !tagesplanSorted.length) {
     tpList.innerHTML = `<p class="hint-empty">Noch kein Tagesplan erfasst.</p>`;
   }
-  if (tpList) tagesplanSorted.forEach((p) => {
+  if (tpList && programmAnsicht === "woche") renderWochenplan(trip, tpList, tagesplanSorted, () => renderProgrammTab(el, trip));
+  else if (tpList) tagesplanSorted.forEach((p) => {
     const teile = [
       p.vormittag ? `<strong>Vormittag:</strong> ${escapeHtml(p.vormittag)}` : "",
       p.nachmittag ? `<strong>Nachmittag:</strong> ${escapeHtml(p.nachmittag)}` : "",
@@ -3662,7 +3677,7 @@ function renderProgrammTab(el, trip) {
     row.innerHTML = `
       <span style="flex:1">
         <span class="termin-badge">${p.datum ? escapeHtml(formatDate(p.datum)) : "Datum offen"}</span>
-        ${p.reservation ? ` <i class="ti ti-alarm" title="Reservation nötig"></i>` : ""}
+        ${p.ideeId && trip.ideen.some((i) => i.id === p.ideeId) ? ' <span class="prog-badge"><i class="ti ti-bulb"></i> aus Idee</span>' : ""}${p.reservation ? ` <i class="ti ti-alarm" title="Reservation nötig"></i>` : ""}
         <br />${teile || `<span class="hint-small" style="margin:0">-</span>`}
         ${p.ort ? `<br /><span class="hint-small" style="margin:0"><i class="ti ti-map-pin"></i> ${escapeHtml(p.ort)}</span>` : ""}
         ${p.kosten ? `<br /><span class="hint-small" style="margin:0">Kosten ca. ${escapeHtml(p.kosten)}</span>` : ""}
@@ -3674,6 +3689,22 @@ function renderProgrammTab(el, trip) {
     editBtn.type = "button";
     editBtn.className = "icon-btn";
     editBtn.innerHTML = `<i class="ti ti-pencil"></i>`;
+    if (p.ideeId && trip.ideen.some((i) => i.id === p.ideeId)) {
+      const backBtn = document.createElement("button");
+      backBtn.type = "button"; backBtn.className = "icon-btn"; backBtn.title = "Zurück in die Ideensammlung";
+      backBtn.innerHTML = '<i class="ti ti-arrow-back-up"></i>';
+      backBtn.onclick = () => { trip.tagesplan = trip.tagesplan.filter((x) => x.id !== p.id); saveChange(); renderProgrammTab(el, trip); };
+      row.appendChild(backBtn);
+    }
+    const geldBtn = document.createElement("button");
+    geldBtn.type = "button"; geldBtn.className = "icon-btn"; geldBtn.title = "Ausgabe dazu erfassen (Finanzen)";
+    geldBtn.innerHTML = '<i class="ti ti-cash"></i>';
+    geldBtn.onclick = () => {
+      finPrefill = { datum: p.datum || finToday(), details: p.vormittag || p.nachmittag || p.abend || p.ort || "", wo: p.ort || "" };
+      editingFinanzId = "__neu__";
+      navigateTab("finanzen");
+    };
+    row.appendChild(geldBtn);
     editBtn.onclick = () => { editingTagesplanId = p.id; renderProgrammTab(el, trip); };
     row.appendChild(editBtn);
     const delBtn = document.createElement("button");
@@ -3704,7 +3735,7 @@ function renderProgrammTab(el, trip) {
     row.className = "item-row";
     row.innerHTML = `
       <span style="flex:1">
-        <strong>${escapeHtml(idee.idee)}</strong>${idee.kategorie ? ` <span class="hint-small">(${escapeHtml(idee.kategorie)})</span>` : ""}
+        <strong>${escapeHtml(idee.idee)}</strong>${ideePlanBadge(trip, idee)}${idee.kategorie ? ` <span class="hint-small">(${escapeHtml(idee.kategorie)})</span>` : ""}
         ${(Array.isArray(idee.etappenIds) && idee.etappenIds.length) ? `<br />${idee.etappenIds.map((eid) => {
           const e = trip.etappen.find((x) => x.id === eid);
           return e ? `<span class="chip" style="font-size:10px;padding:2px 8px"><i class="ti ti-map-pin"></i>${escapeHtml(e.titel)}</span>` : "";
@@ -3722,23 +3753,26 @@ function renderProgrammTab(el, trip) {
     toPlanBtn.className = "icon-btn";
     toPlanBtn.title = "In Tagesplan übernehmen";
     toPlanBtn.innerHTML = `<i class="ti ti-calendar-plus"></i>`;
-    toPlanBtn.onclick = () => {
-      trip.tagesplan.push({
-        id: "tp" + Date.now() + Math.random().toString(36).slice(2, 6),
-        datum: "",
-        vormittag: idee.idee,
-        nachmittag: "",
-        abend: "",
-        ort: idee.ort || "",
-        reservation: false,
-        kosten: idee.kosten || "",
-        bemerkung: idee.bemerkung || "",
-        link: idee.link || idee.googleMaps || "",
-      });
-      trip.ideen = trip.ideen.filter((x) => x.id !== idee.id);
-      saveChange();
-      renderProgrammTab(el, trip);
-    };
+    const plan = trip.tagesplan.find((x) => x.ideeId === idee.id);
+    if (plan) {
+      row.classList.add("idee-eingeplant");
+      toPlanBtn.title = "Eintrag im Tagesplan öffnen";
+      toPlanBtn.innerHTML = '<i class="ti ti-calendar-check"></i>';
+      toPlanBtn.onclick = () => { programmAnsicht = "liste"; editingTagesplanId = plan.id; renderProgrammTab(el, trip); };
+    } else {
+      toPlanBtn.onclick = () => {
+        const neu = {
+          id: "tp" + Date.now() + Math.random().toString(36).slice(2, 6),
+          ideeId: idee.id, datum: "", vormittag: idee.idee, nachmittag: "", abend: "", ort: idee.ort || "",
+          reservation: false, kosten: idee.kosten || "", bemerkung: idee.bemerkung || "", link: idee.link || idee.googleMaps || "",
+        };
+        trip.tagesplan.push(neu);
+        saveChange();
+        programmAnsicht = "liste";
+        editingTagesplanId = neu.id;
+        renderProgrammTab(el, trip);
+      };
+    }
     row.appendChild(toPlanBtn);
     const editBtn = document.createElement("button");
     editBtn.type = "button";
@@ -3769,7 +3803,8 @@ function renderProgrammTab(el, trip) {
 function renderTagesplanForm(trip, onChange) {
   const isNew = editingTagesplanId === "__neu__";
   const existing = isNew ? null : trip.tagesplan.find((p) => p.id === editingTagesplanId);
-  const p = existing || { datum: "", vormittag: "", nachmittag: "", abend: "", ort: "", reservation: false, kosten: "", bemerkung: "", link: "" };
+  const p = existing || { datum: tagesplanNeuDatum || "", vormittag: "", nachmittag: "", abend: "", ort: "", reservation: false, kosten: "", bemerkung: "", link: "" };
+  tagesplanNeuDatum = "";
 
   const form = document.createElement("form");
   form.className = "field-form panel";
@@ -3851,6 +3886,23 @@ function renderIdeeForm(trip, onChange) {
     </div>
   `;
 
+  const katInp = form.querySelector('input[name="kategorie"]');
+  const katVorschlaege = finUniq(["Ausflug", "Restaurant", "Baden", "Wandern", "Sehenswürdigkeit", "Einkaufen", "Aktivität", "Schlechtwetter", ...trip.ideen.map((i) => i.kategorie)]);
+  const katRow = document.createElement("div");
+  katRow.className = "chip-row";
+  const zeichneKat = () => {
+    katRow.innerHTML = "";
+    katVorschlaege.forEach((k) => {
+      const c = document.createElement("button");
+      c.type = "button"; c.className = "chip" + (katInp.value.trim() === k ? " active" : ""); c.textContent = k;
+      c.onclick = () => { katInp.value = katInp.value.trim() === k ? "" : k; zeichneKat(); };
+      katRow.appendChild(c);
+    });
+  };
+  katInp.parentElement.after(katRow);
+  katInp.addEventListener("input", zeichneKat);
+  zeichneKat();
+
   if (trip.etappen && trip.etappen.length) {
     const chipRow = form.querySelector("#idee-etappen-chiprow");
     const renderChips = () => {
@@ -3921,6 +3973,7 @@ function renderIdeeForm(trip, onChange) {
 // ===========================================================
 let editingFinanzId = null;
 let finAuswertungOffen = false;
+let finPrefill = null;
 const FIN_FIX_PERSONEN = ["Benzo", "Marielle"];
 const FIN_WAEHRUNGEN = [["CHF", "CHF"], ["EUR", "EUR"], ["USD", "USD"], ["GBP", "GBP (Pfund Sterling)"]];
 const FIN_KATEGORIEN = ["Unterkunft", "Essen & Trinken", "Einkäufe", "Transport & Treibstoff", "Aktivitäten & Eintritte", "Gebühren (Maut, Parkplatz)", "Sonstiges"];
@@ -4302,6 +4355,7 @@ function renderFinanzForm(trip, onChange) {
     datum: finToday(), kategorie: "", details: "", wo: "", betrag: "", waehrung: last.waehrung || trip.finHauptwaehrung,
     zahlungsart: last.zahlungsart || "", bezahltVon: last.bezahltVon || "Benzo", anteile: [], abgerechnet: false, notizen: "",
   };
+  if (isNew && finPrefill) { Object.assign(f, finPrefill); finPrefill = null; }
   const anteile = (f.anteile || []).map((a) => ({ person: a.person, betrag: a.betrag }));
 
   const form = document.createElement("form");
@@ -4716,6 +4770,138 @@ function finExportXlsx(trip) {
     { name: "Auswertung", rows: ausw },
     { name: "Ausgleiche", rows: aus },
   ]));
+}
+
+// ===========================================================
+// SUCHE (global oder nur im aktuellen Register) + PROGRAMM-HILFEN
+// ===========================================================
+let sucheNurRegister = false;
+let sucheText = "";
+let programmAnsicht = "liste";
+let tagesplanNeuDatum = "";
+
+function sucheQuellen(trip) {
+  const d = getData();
+  const q = [];
+  const lbl = (o) => o.text || o.name || o.titel || o.idee || o.details || o.wo || o.frage || o.thema || o.vormittag || o.nachmittag || o.abend || "";
+  const add = (tab, arr, labelFn) => (arr || []).forEach((o) => q.push({ tab, o, label: (labelFn || lbl)(o) }));
+  if (trip) {
+    add("packliste", trip.packliste);
+    add("todo", trip.todo);
+    add("programm", trip.ideen);
+    add("programm", trip.tagesplan, (p) => [p.datum ? formatDate(p.datum) : "", p.vormittag || p.nachmittag || p.abend].filter(Boolean).join(" · "));
+    add("finanzen", trip.finanzen, (f) => [f.datum ? formatDate(f.datum) : "", f.details || f.wo, f.betrag ? finFmt(finNum(f.betrag)) + " " + (f.waehrung || "") : ""].filter(Boolean).join(" · "));
+    add("notizen", trip.notizen);
+    add("ferien", trip.unterkuenfte);
+  }
+  add("artikel", d.artikelDatenbank);
+  add("todo", d.todoVorlage);
+  add("ratgeber", d.ratgeberDatenbank);
+  return q;
+}
+function sucheHeu(o) {
+  return Object.keys(o).filter((k) => !/^id$|Id$|Ids$/.test(k))
+    .map((k) => o[k]).filter((v) => typeof v === "string" || typeof v === "number").join(" ").toLowerCase();
+}
+function openSucheModal() {
+  const trip = getCurrentTrip();
+  const quellen = sucheQuellen(trip);
+  const defCur = TAB_DEFS[currentTab] || null;
+  const wrap = document.createElement("div");
+  wrap.className = "field-form suche-box";
+  wrap.innerHTML = `
+    <h3><i class="ti ti-search"></i> Suchen</h3>
+    <input type="search" id="suche-input" placeholder="Suchbegriff ..." value="${escapeHtml(sucheText)}" autocomplete="off" />
+    ${defCur ? `<label class="checkbox-inline"><input type="checkbox" id="suche-nur" ${sucheNurRegister ? "checked" : ""} /> Nur im Register «${escapeHtml(defCur.label)}»</label>` : ""}
+    <div id="suche-ergebnis"></div>
+  `;
+  const input = wrap.querySelector("#suche-input");
+  const nur = wrap.querySelector("#suche-nur");
+  const out = wrap.querySelector("#suche-ergebnis");
+  const run = () => {
+    sucheText = input.value;
+    sucheNurRegister = !!(nur && nur.checked);
+    const q = sucheText.trim().toLowerCase();
+    out.innerHTML = "";
+    if (q.length < 2) { out.innerHTML = `<p class="hint-small">Mindestens 2 Zeichen eingeben.</p>`; return; }
+    const hits = quellen.filter((x) => (!sucheNurRegister || x.tab === currentTab) && sucheHeu(x.o).includes(q));
+    if (!hits.length) { out.innerHTML = `<p class="hint-empty">Nichts gefunden.</p>`; return; }
+    const byTab = {};
+    hits.forEach((h) => { (byTab[h.tab] = byTab[h.tab] || []).push(h); });
+    Object.keys(byTab).forEach((tab) => {
+      const def = TAB_DEFS[tab] || { icon: "ti-search", label: tab };
+      const h = document.createElement("div");
+      h.className = "suche-gruppe";
+      h.innerHTML = `<i class="ti ${def.icon}"></i> ${escapeHtml(def.label)} (${byTab[tab].length})`;
+      out.appendChild(h);
+      byTab[tab].slice(0, 8).forEach((x) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "suche-treffer";
+        b.textContent = x.label || "(ohne Titel)";
+        b.onclick = () => { closeModal(); if (tab === currentTab) render(); else navigateTab(tab); };
+        out.appendChild(b);
+      });
+      if (byTab[tab].length > 8) {
+        const m = document.createElement("p");
+        m.className = "hint-small"; m.textContent = "… und " + (byTab[tab].length - 8) + " weitere - Suchbegriff präzisieren.";
+        out.appendChild(m);
+      }
+    });
+  };
+  input.oninput = run;
+  if (nur) nur.onchange = run;
+  openModal(wrap, () => {});
+  setTimeout(() => { input.focus(); input.select(); run(); }, 50);
+}
+
+function ideePlanBadge(trip, idee) {
+  const p = trip.tagesplan.find((x) => x.ideeId === idee.id);
+  return p ? ` <span class="prog-badge"><i class="ti ti-calendar-check"></i> ${p.datum ? escapeHtml(formatDate(p.datum)) : "eingeplant"}</span>` : "";
+}
+
+/** Wochenplan: pro Tag eine Zeile mit Vormittag / Nachmittag / Abend. */
+function renderWochenplan(trip, host, plaene, onChange) {
+  const tage = new Set(plaene.map((p) => p.datum).filter(Boolean));
+  if (trip.von) {
+    const ende = new Date((trip.bis || trip.von) + "T12:00:00");
+    for (let d = new Date(trip.von + "T12:00:00"), n = 0; d <= ende && n < 62; d.setDate(d.getDate() + 1), n++) {
+      tage.add(d.toISOString().slice(0, 10));
+    }
+  }
+  const wt = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+  const slots = ["vormittag", "nachmittag", "abend"];
+  const grid = document.createElement("div");
+  grid.className = "woche-grid";
+  ["Tag", "Vormittag", "Nachmittag", "Abend"].forEach((t) => {
+    const c = document.createElement("div");
+    c.className = "woche-head"; c.textContent = t; grid.appendChild(c);
+  });
+  const oeffnen = (eintraege, datum) => {
+    if (eintraege.length) editingTagesplanId = eintraege[0].id;
+    else { editingTagesplanId = "__neu__"; tagesplanNeuDatum = datum || ""; }
+    onChange();
+    setTimeout(() => { const f = document.getElementById("tagesplan-form-container"); if (f) f.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, 0);
+  };
+  const zeile = (labelText, eintraege, datum) => {
+    const l = document.createElement("div");
+    l.className = "woche-day woche-cell"; l.textContent = labelText;
+    l.onclick = () => oeffnen(eintraege, datum);
+    grid.appendChild(l);
+    slots.forEach((s) => {
+      const c = document.createElement("div");
+      c.className = "woche-cell";
+      c.textContent = eintraege.map((p) => p[s]).filter(Boolean).join(" · ");
+      c.onclick = () => oeffnen(eintraege, datum);
+      grid.appendChild(c);
+    });
+  };
+  [...tage].sort().forEach((datum) => {
+    const wd = wt[new Date(datum + "T12:00:00").getDay()];
+    zeile(wd + " " + formatDate(datum).slice(0, 5), plaene.filter((p) => p.datum === datum), datum);
+  });
+  plaene.filter((p) => !p.datum).forEach((p) => zeile("Datum offen", [p], ""));
+  host.appendChild(grid);
 }
 
 // ===========================================================
@@ -5586,10 +5772,13 @@ function injectAddBar() {
   const neutral = !trip && getData().ferien.length > 0;
   const actions = getAddActions(currentTab, trip).filter((a) => a.run || findAddBtn(a.sel, a.text));
   const hatZurueck = tabHistory.length > 0;
-  if (!actions.length && !neutral && !hatZurueck) { bar.classList.add("hidden"); return; }
   const def = TAB_DEFS[currentTab] || { icon: "ti-settings", label: "Einstellungen" };
   bar.classList.remove("hidden");
   bar.innerHTML = `${hatZurueck ? '<button type="button" class="tab-back-btn" title="Zurück"><i class="ti ti-arrow-left"></i></button>' : ""}<span class="tab-add-title"><i class="ti ${def.icon}"></i> ${escapeHtml(def.label)}</span>${neutral ? '<button type="button" class="tab-add-info" title="Was ist die Allgemein-Ansicht?"><i class="ti ti-info-circle"></i> Allgemein-Ansicht</button>' : ""}<span class="tab-add-spacer"></span>`;
+  const sb = document.createElement("button");
+  sb.type = "button"; sb.className = "tab-add-btn tab-search-btn"; sb.title = "Suchen"; sb.innerHTML = '<i class="ti ti-search"></i>';
+  sb.onclick = openSucheModal;
+  bar.appendChild(sb);
   const back = bar.querySelector(".tab-back-btn");
   if (back) back.onclick = () => history.back();
   const info = bar.querySelector(".tab-add-info");
