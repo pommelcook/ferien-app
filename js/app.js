@@ -3976,7 +3976,7 @@ let finAuswertungOffen = false;
 let finPrefill = null;
 const FIN_FIX_PERSONEN = ["Benzo", "Marielle"];
 const FIN_WAEHRUNGEN = [["CHF", "CHF"], ["EUR", "EUR"], ["USD", "USD"], ["GBP", "GBP (Pfund Sterling)"]];
-const FIN_KATEGORIEN = ["Unterkunft", "Essen & Trinken", "Einkäufe", "Transport & Treibstoff", "Aktivitäten & Eintritte", "Gebühren (Maut, Parkplatz)", "Sonstiges"];
+const FIN_KATEGORIEN = ["Unterkunft", "Essen & Trinken auswärts", "Einkäufe", "Transport & Treibstoff", "Aktivitäten & Eintritte", "Gebühren (Maut, Parkplatz)", "Sonstiges"];
 const FIN_ZAHLARTEN = ["Bar", "Kreditkarte", "Maestro"];
 
 function finToday() {
@@ -4005,6 +4005,13 @@ function finNormalize(trip) {
     if (f.abgerechnet === undefined) f.abgerechnet = false;
     if (!f.waehrung) f.waehrung = "CHF";
   });
+  // Migration: "VerpfleguNg"/"Verpflegung"/"Essen & Trinken" -> "Essen & Trinken auswärts"
+  const istAlt = (k) => { const l = String(k || "").trim().toLowerCase(); return l === "verpflegung" || l === "essen & trinken"; };
+  let geaendert = false;
+  const dd = getData();
+  if (dd.finKategorienEigen && dd.finKategorienEigen.some(istAlt)) { dd.finKategorienEigen = dd.finKategorienEigen.filter((k) => !istAlt(k)); geaendert = true; }
+  (dd.ferien || []).forEach((t) => (t.finanzen || []).forEach((f) => { if (istAlt(f.kategorie)) { f.kategorie = "Essen & Trinken auswärts"; geaendert = true; } }));
+  if (geaendert) saveChange();
 }
 function finUniq(arr) {
   const seen = new Set();
@@ -4019,7 +4026,13 @@ function finPersonen(trip) {
 function finKategorien(trip) {
   const dd = getData();
   dd.finKategorienEigen = dd.finKategorienEigen || [];
-  return finUniq([...FIN_KATEGORIEN, ...dd.finKategorienEigen, ...trip.finanzen.map((f) => f.kategorie)]);
+  const gesehen = new Set();
+  return [...FIN_KATEGORIEN, ...dd.finKategorienEigen, ...trip.finanzen.map((f) => f.kategorie)].filter((k) => {
+    const key = String(k || "").trim().toLowerCase();
+    if (!key || gesehen.has(key)) return false;
+    gesehen.add(key);
+    return true;
+  });
 }
 function finWaehrungenListe(trip) {
   const l = FIN_WAEHRUNGEN.map((x) => x.slice());
@@ -4605,8 +4618,10 @@ function finRenderAuswertung(det, trip, R, rerender) {
     html += `</tbody></table></div>`;
   }
   html += `<h4>Wechselkurse</h4><div class="fin-kurse"></div>`;
+  html += `<h4>Kategorien verwalten</h4><div class="fin-katverw"></div>`;
   det.innerHTML = html;
 
+  finKatVerwaltung(det.querySelector(".fin-katverw"), trip, rerender);
   const box = det.querySelector(".fin-kurse");
   const hauptWrap = document.createElement("label");
   hauptWrap.innerHTML = `<span><i class="ti ti-coin"></i> Hauptwährung für Totale</span>`;
@@ -4628,6 +4643,52 @@ function finRenderAuswertung(det, trip, R, rerender) {
     i.onchange = () => { trip.finKurse[w] = finNum(i.value) || ""; saveChange(); finAuswertungOffen = true; rerender(); };
     r.appendChild(i);
     box.appendChild(r);
+  });
+}
+
+/** Eigene Kategorien umbenennen (auch zusammenführen) oder entfernen - wirkt auf alle Ferien. */
+function finKatVerwaltung(host, trip, rerender) {
+  const dd = getData();
+  dd.finKategorienEigen = dd.finKategorienEigen || [];
+  const liste = finKategorien(trip).filter((k) => !FIN_KATEGORIEN.includes(k));
+  if (!liste.length) {
+    host.innerHTML = '<p class="hint-small">Nur Standard-Kategorien vorhanden. Eigene Kategorien erscheinen hier und lassen sich umbenennen oder entfernen.</p>';
+    return;
+  }
+  const anwenden = (alt, neu) => {
+    dd.finKategorienEigen = dd.finKategorienEigen.filter((k) => k !== alt);
+    if (neu && !FIN_KATEGORIEN.includes(neu) && !dd.finKategorienEigen.includes(neu)) dd.finKategorienEigen.push(neu);
+    (dd.ferien || []).forEach((t) => (t.finanzen || []).forEach((f) => { if (f.kategorie === alt) f.kategorie = neu; }));
+    saveChange();
+    finAuswertungOffen = true;
+    rerender();
+  };
+  liste.forEach((k) => {
+    const n = (dd.ferien || []).reduce((s, t) => s + (t.finanzen || []).filter((f) => f.kategorie === k).length, 0);
+    const r = document.createElement("div");
+    r.className = "fin-saldo-row";
+    const s = document.createElement("span");
+    s.textContent = k + " (" + n + " Ausgabe" + (n === 1 ? "" : "n") + ")";
+    r.appendChild(s);
+    const ren = document.createElement("button");
+    ren.type = "button"; ren.className = "icon-btn"; ren.title = "Umbenennen / mit anderer Kategorie zusammenführen";
+    ren.innerHTML = '<i class="ti ti-pencil"></i>';
+    ren.onclick = () => {
+      let neu = (prompt("Neuer Name für «" + k + "» (Name einer bestehenden Kategorie = zusammenführen):", k) || "").trim();
+      if (!neu || neu === k) return;
+      const vorhanden = finKategorien(trip).find((x) => x !== k && x.toLowerCase() === neu.toLowerCase());
+      if (vorhanden) neu = vorhanden;
+      anwenden(k, neu);
+    };
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "icon-btn danger"; del.title = "Kategorie entfernen";
+    del.innerHTML = '<i class="ti ti-trash"></i>';
+    del.onclick = () => {
+      if (!confirm("Kategorie «" + k + "» entfernen?" + (n ? " " + n + " Ausgabe(n) haben danach keine Kategorie." : ""))) return;
+      anwenden(k, "");
+    };
+    r.append(ren, del);
+    host.appendChild(r);
   });
 }
 
