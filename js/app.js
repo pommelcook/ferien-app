@@ -3976,7 +3976,7 @@ let finAuswertungOffen = false;
 let finPrefill = null;
 const FIN_FIX_PERSONEN = ["Benzo", "Marielle"];
 const FIN_WAEHRUNGEN = [["CHF", "CHF"], ["EUR", "EUR"], ["USD", "USD"], ["GBP", "GBP (Pfund Sterling)"]];
-const FIN_KATEGORIEN = ["Unterkunft", "Essen & Trinken auswärts", "Einkäufe", "Transport & Treibstoff", "Aktivitäten & Eintritte", "Gebühren (Maut, Parkplatz)", "Sonstiges"];
+const FIN_KATEGORIEN = ["Unterkunft", "Verpflegung auswärts", "Einkäufe", "Transport & Treibstoff", "Aktivitäten & Eintritte", "Gebühren (Maut, Parkplatz)", "Sonstiges"];
 const FIN_ZAHLARTEN = ["Bar", "Kreditkarte", "Maestro"];
 
 function finToday() {
@@ -4006,11 +4006,11 @@ function finNormalize(trip) {
     if (!f.waehrung) f.waehrung = "CHF";
   });
   // Migration: "VerpfleguNg"/"Verpflegung"/"Essen & Trinken" -> "Essen & Trinken auswärts"
-  const istAlt = (k) => { const l = String(k || "").trim().toLowerCase(); return l === "verpflegung" || l === "essen & trinken"; };
+  const istAlt = (k) => { const l = String(k || "").trim().toLowerCase(); return l === "verpflegung" || l === "essen & trinken" || l === "essen & trinken auswärts"; };
   let geaendert = false;
   const dd = getData();
   if (dd.finKategorienEigen && dd.finKategorienEigen.some(istAlt)) { dd.finKategorienEigen = dd.finKategorienEigen.filter((k) => !istAlt(k)); geaendert = true; }
-  (dd.ferien || []).forEach((t) => (t.finanzen || []).forEach((f) => { if (istAlt(f.kategorie)) { f.kategorie = "Essen & Trinken auswärts"; geaendert = true; } }));
+  (dd.ferien || []).forEach((t) => (t.finanzen || []).forEach((f) => { if (istAlt(f.kategorie)) { f.kategorie = "Verpflegung auswärts"; geaendert = true; } }));
   if (geaendert) saveChange();
 }
 function finUniq(arr) {
@@ -4249,28 +4249,38 @@ function renderFinanzenTab(el, trip) {
   const grid = el.querySelector("#finanzen-list");
   const head = document.createElement("div");
   head.className = "fin-row fin-head";
-  head.innerHTML = ["Datum", "Kategorie", "Details", "Wo", "Betrag", "Zahlungsart", "Bezahlt von", "Aufteilung", ""].map((h) => `<div>${h}</div>`).join("");
+  const personen = finPersonen(trip);
+  const mehrW = Object.keys(R.gesamt).length > 1;
+  grid.style.setProperty("--fin-cols", "96px 120px minmax(120px,1.5fr) minmax(80px,1fr) 125px 100px 100px " + personen.map(() => "92px").join(" ") + " 100px 64px");
+  grid.style.setProperty("--fin-min", (960 + 92 * personen.length) + "px");
+  const kopf = [["fin-c-datum", "Datum"], ["fin-c-kat", "Kategorie"], ["fin-c-details", "Details"], ["fin-c-wo", "Wo"], ["fin-c-betrag", "Betrag"], ["fin-c-zahl", "Zahlungsart"], ["fin-c-von", "Bezahlt von"]]
+    .concat(personen.map((p) => ["fin-c-p", "Anteil " + p]), [["fin-c-teil", "Teilen"], ["fin-c-act", ""]]);
+  head.innerHTML = kopf.map((k) => '<div class="' + k[0] + '">' + escapeHtml(k[1]) + "</div>").join("");
   grid.appendChild(head);
-  sorted.forEach((f) => grid.appendChild(finDataRow(trip, f, rerender)));
+  sorted.forEach((f) => grid.appendChild(finDataRow(trip, f, rerender, personen, mehrW)));
   if (!sorted.length) {
     for (let i = 0; i < 3; i++) {
       const ph = document.createElement("div");
       ph.className = "fin-row fin-ph";
-      ph.innerHTML = "<div></div>".repeat(9);
+      ph.innerHTML = "<div></div>".repeat(9 + personen.length);
       grid.appendChild(ph);
     }
+  } else {
+    grid.appendChild(finTotalRow(R, personen));
   }
-  grid.appendChild(finEntryRow(trip, rerender));
+  grid.appendChild(finEntryRow(trip, rerender, personen));
 
   finRenderSaldo(el.querySelector("#fin-saldo"), trip, R, rerender);
   finRenderAuswertung(el.querySelector("#fin-auswertung"), trip, R, rerender);
 }
 
-function finDataRow(trip, f, rerender) {
+function finDataRow(trip, f, rerender, personen, mehrW) {
   const row = document.createElement("div");
   row.className = "fin-row fin-data" + (f.abgerechnet ? " fin-done" : "");
   const shares = (f.anteile || []).filter((a) => a.person && finNum(a.betrag));
   const teil = shares.map((a) => escapeHtml(a.person) + " " + finFmt(finNum(a.betrag))).join(", ");
+  const sh = finShareMap(f);
+  const personCells = (personen || []).map((p) => '<div class="fin-c-p" data-l="' + escapeHtml(p) + ': ">' + (sh[p] ? finFmt(sh[p]) + (mehrW ? " " + escapeHtml(f.waehrung || "CHF") : "") : "") + "</div>").join("");
   row.innerHTML = `
     <div class="fin-c-datum">${f.datum ? formatDate(f.datum) : ""}</div>
     <div class="fin-c-kat">${escapeHtml(f.kategorie || "")}</div>
@@ -4279,7 +4289,8 @@ function finDataRow(trip, f, rerender) {
     <div class="fin-c-betrag">${finFmt(finNum(f.betrag))} ${escapeHtml(f.waehrung || "CHF")}</div>
     <div class="fin-c-zahl">${escapeHtml(f.zahlungsart || "")}</div>
     <div class="fin-c-von" data-l="Von: ">${escapeHtml(f.bezahltVon || "")}</div>
-    <div class="fin-c-teil" data-l="Teilung: ">${teil}</div>
+    ${personCells}
+    <div class="fin-c-teil" title="${teil}"></div>
     <div class="fin-c-act"></div>
   `;
   row.style.cursor = "pointer";
@@ -4299,7 +4310,7 @@ function finDataRow(trip, f, rerender) {
 }
 
 /** Erfassungszeile direkt in der Tabelle (am Handy: untereinander angeordnet). */
-function finEntryRow(trip, rerender) {
+function finEntryRow(trip, rerender, personen) {
   const last = trip.finanzen[trip.finanzen.length - 1] || {};
   const row = document.createElement("form");
   row.className = "fin-row fin-entry";
@@ -4328,6 +4339,7 @@ function finEntryRow(trip, rerender) {
   cell("fin-c-betrag", bc);
   cell("fin-c-zahl", finZahlSelect(trip, last.zahlungsart || "", "Zahlungsart"));
   cell("fin-c-von", finPersonSelect(trip, "bezahltVon", last.bezahltVon || "Benzo", "Bezahlt von", null));
+  (personen || []).forEach(() => cell("fin-c-p", document.createElement("span")));
   const teil = document.createElement("select");
   teil.name = "teilen";
   teil.innerHTML = `<option value="">Nicht teilen</option><option value="halb">50 / 50</option><option value="detail">Details ...</option>`;
@@ -4358,6 +4370,25 @@ function finEntryRow(trip, rerender) {
     if (t === "detail") editingFinanzId = pos.id;
     rerender();
   });
+  return row;
+}
+
+/** Resultatzeile unter der Tabelle: Gesamtbetrag und Anteil pro Person (je Währung). */
+function finTotalRow(R, personen) {
+  const row = document.createElement("div");
+  row.className = "fin-row fin-total-row";
+  const lines = (m) => {
+    const ws = Object.keys(m).filter((w) => Math.abs(m[w]) > 0.004);
+    return ws.map((w) => finFmt(m[w]) + " " + escapeHtml(w)).join("<br />");
+  };
+  const cell = (cls, html, l) => '<div class="' + cls + '"' + (l ? ' data-l="' + escapeHtml(l) + '"' : "") + ">" + html + "</div>";
+  let h = cell("fin-c-datum", "") + cell("fin-c-kat", "") + cell("fin-c-details", "Total") + cell("fin-c-wo", "") + cell("fin-c-betrag", lines(R.gesamt)) + cell("fin-c-zahl", "") + cell("fin-c-von", "");
+  personen.forEach((p) => {
+    const m = {};
+    Object.keys(R.anteil).forEach((w) => { if (R.anteil[w][p]) m[w] = R.anteil[w][p]; });
+    h += cell("fin-c-p", lines(m), "Anteil " + p + ": ");
+  });
+  row.innerHTML = h + cell("fin-c-teil", "") + cell("fin-c-act", "");
   return row;
 }
 
@@ -4567,14 +4598,22 @@ function finRenderSaldo(sec, trip, R, rerender) {
   const form = document.createElement("form");
   form.className = "fin-aus-form";
   const personen = finPersonen(trip);
-  const von = finPersonSelect(trip, "von", personen[0] || "", "Von", null);
-  const an = finPersonSelect(trip, "an", personen[1] || "", "An", null);
+  const ersterVorschlag = waehrungen.length ? finVorschlaege(R.net[waehrungen[0]])[0] : null;
+  const von = finPersonSelect(trip, "von", ersterVorschlag ? ersterVorschlag.von : (personen[0] || ""), "(wählen)", null);
+  const an = finPersonSelect(trip, "an", ersterVorschlag ? ersterVorschlag.an : (personen[1] || ""), "(wählen)", null);
   const bi = document.createElement("input");
   bi.type = "number"; bi.step = "0.01"; bi.name = "betrag"; bi.placeholder = "Betrag"; bi.inputMode = "decimal"; bi.required = true;
   const ws = finWaehrungSelect(trip, trip.finHauptwaehrung);
   const ok = document.createElement("button");
   ok.type = "submit"; ok.innerHTML = `<i class="ti ti-plus"></i> Ausgleich buchen`;
-  form.append(von, an, bi, ws, ok);
+  const lab = (t, el) => { const l = document.createElement("label"); l.className = "fin-aus-lab"; const s = document.createElement("span"); s.innerHTML = t; l.append(s, el); return l; };
+  const hinweis = document.createElement("p");
+  hinweis.className = "hint-small fin-aus-hint";
+  const upd = () => { hinweis.textContent = (von.value && an.value && finNum(bi.value)) ? von.value + " zahlt " + finFmt(finNum(bi.value)) + " " + ws.value + " an " + an.value : "Wer hat wem Geld bezahlt? VON = zahlt, AN = erhält."; };
+  [von, an, ws].forEach((e) => e.addEventListener("change", upd));
+  bi.addEventListener("input", upd);
+  form.append(lab('<i class="ti ti-arrow-up-right"></i> VON (zahlt)', von), lab('<i class="ti ti-arrow-down-left"></i> AN (erhält)', an), lab("Betrag", bi), lab("Währung", ws), ok, hinweis);
+  upd();
   form.onsubmit = (e) => {
     e.preventDefault();
     if (!von.value || !an.value || von.value === an.value || !finNum(bi.value)) return;
