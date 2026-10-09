@@ -1163,8 +1163,8 @@ main#tab-content {
 .fin-top .fin-total { margin: 4px 0 8px; }
 .fin-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .fin-wrap { overflow-x: auto; }
-.fin-grid { min-width: 900px; }
-.fin-row { display: grid; grid-template-columns: 96px 130px minmax(120px,1.5fr) minmax(90px,1fr) 150px 100px 100px 120px 64px; gap: 4px; align-items: center; padding: 4px 2px; border-bottom: 1px solid #ddd; font-size: 13px; }
+.fin-grid { min-width: var(--fin-min, 900px); }
+.fin-row { display: grid; grid-template-columns: var(--fin-cols, 96px 120px minmax(120px,1.5fr) minmax(80px,1fr) 125px 100px 100px 100px 64px); gap: 4px; align-items: center; padding: 4px 2px; border-bottom: 1px solid #ddd; font-size: 13px; }
 .fin-row > div { min-width: 0; overflow-wrap: anywhere; }
 .fin-head { font-weight: 700; font-size: 12px; border-bottom: 2px solid #999; }
 .fin-c-betrag { font-weight: 600; text-align: right; }
@@ -1196,7 +1196,7 @@ main#tab-content {
 @media (max-width: 640px) {
   .fin-grid { min-width: 0; }
   .fin-head, .fin-ph { display: none; }
-  .fin-data { grid-template-columns: auto 1fr auto; grid-template-areas: "datum kat betrag" "details details details" "wo wo von" "zahl teil act"; border: 1px solid #ccc; border-radius: 6px; padding: 6px; margin-bottom: 6px; }
+  .fin-data { grid-template-columns: auto 1fr auto; grid-template-areas: "datum kat betrag" "details details act" "wo wo von" "zahl zahl zahl"; border: 1px solid #ccc; border-radius: 6px; padding: 6px; margin-bottom: 6px; }
   .fin-data .fin-c-datum { grid-area: datum; font-weight: 600; }
   .fin-data .fin-c-kat { grid-area: kat; opacity: .8; }
   .fin-data .fin-c-betrag { grid-area: betrag; }
@@ -1232,3 +1232,24 @@ main#tab-content {
 .suche-gruppe { font-weight: 700; margin: 10px 0 2px; }
 .suche-treffer { display: block; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid rgba(128,128,128,.3); padding: 6px 4px; cursor: pointer; color: inherit; font: inherit; }
 .suche-treffer:hover { background: rgba(25,118,210,.1); }
+
+/* ===== v0.31: Finanzen Anteil-Spalten, Total, Ausgleich ===== */
+.fin-c-p { text-align: right; white-space: nowrap; }
+.fin-head .fin-c-betrag, .fin-head .fin-c-p { text-align: right; }
+.fin-c-zahl { padding-left: 12px; }
+.fin-total-row { border-top: 2px solid #999; border-bottom: 2px solid #999; font-weight: 700; background: rgba(128,128,128,.12); align-items: start; }
+.fin-entry { margin-top: 10px; }
+.fin-aus-form { align-items: flex-end; }
+.fin-aus-lab { display: flex; flex-direction: column; gap: 2px; flex: 1 1 110px; font-size: 12px; font-weight: 700; }
+.fin-aus-hint { flex: 1 1 100%; margin: 0; }
+@media (max-width: 640px) {
+  .fin-data .fin-c-p:empty, .fin-data .fin-c-teil { display: none; }
+  .fin-data .fin-c-p { grid-column: 1 / -1; text-align: left; }
+  .fin-data .fin-c-p::before { content: attr(data-l); opacity: .6; }
+  .fin-entry .fin-c-p { display: none; }
+  .fin-total-row { grid-template-columns: 1fr 1fr; }
+  .fin-total-row > div:empty { display: none; }
+  .fin-total-row .fin-c-details, .fin-total-row .fin-c-betrag { grid-column: 1 / -1; text-align: left; }
+  .fin-total-row .fin-c-p { text-align: left; }
+  .fin-total-row .fin-c-p::before { content: attr(data-l); opacity: .7; font-weight: 400; display: block; }
+}
