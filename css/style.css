@@ -1307,3 +1307,9 @@ main#tab-content {
   .fin-entry .fin-c-datum input { padding: 4px 2px; font-size: 11px; }
   .fin-entry .fin-c-datum input::-webkit-calendar-picker-indicator { display: none; }
 }
+
+/* ===== v0.35: Tabelle schrumpft auf Inhalt, keine grossen Spaltenabstaende ===== */
+@media (min-width: 641px) {
+  .fin-grid { width: fit-content; min-width: 0; }
+  .fin-row { justify-content: start; }
+}
