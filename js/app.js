@@ -4326,7 +4326,7 @@ function renderFinanzenTab(el, trip) {
   const mehrW = Object.keys(R.gesamt).length > 1;
   const aus = finSpaltenAus;
   const pw = mehrW ? 100 : 72;
-  const spalten = [["datum", "84px", 84], ["kat", "108px", 108], ["details", "minmax(110px,1.6fr)", 110], ["wo", "minmax(90px,1fr)", 90], ["von", "84px", 84], ["betrag", "124px", 124]]
+  const spalten = [["datum", "68px", 68], ["kat", "108px", 108], ["details", "minmax(110px,1.6fr)", 110], ["wo", "minmax(90px,1fr)", 90], ["von", "84px", 84], ["betrag", "124px", 124]]
     .concat(personen.map(() => ["p", pw + "px", pw]), [["zahl", "86px", 86], ["act", "58px", 58]])
     .filter((s) => aus.indexOf(s[0]) < 0);
   grid.style.setProperty("--fin-cols", spalten.map((s) => s[1]).join(" "));
@@ -4339,7 +4339,7 @@ function renderFinanzenTab(el, trip) {
     d.className = k[1] + " fin-sortable";
     d.title = k[0] === "act" ? "Abgerechnet - zum Sortieren anklicken" : "Nach «" + k[2] + "» sortieren";
     const pfeil = finSort.key === k[0] ? (finSort.dir > 0 ? " ▲" : " ▼") : "";
-    if (k[0].indexOf("p:") === 0) d.innerHTML = '<span class="fin-sub">Anteil</span><br />' + escapeHtml(k[2]) + pfeil;
+    if (k[0].indexOf("p:") === 0) d.innerHTML = escapeHtml(k[2]) + pfeil + '<br /><span class="fin-sub">Anteil</span>';
     else d.textContent = k[2] + pfeil;
     d.onclick = () => { if (finSort.key === k[0]) finSort.dir = -finSort.dir; else finSort = { key: k[0], dir: 1 }; rerender(); };
     head.appendChild(d);
