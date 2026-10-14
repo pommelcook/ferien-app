@@ -1293,3 +1293,17 @@ main#tab-content {
 @media (max-width: 640px) {
   .fin-total-row .fin-c-datum, .fin-total-row .fin-c-kat, .fin-total-row .fin-c-wo, .fin-total-row .fin-c-von { grid-column: 1 / -1; text-align: left; }
 }
+
+/* ===== v0.34: Spaltenbreite per Maus ===== */
+.fin-head > div { position: relative; }
+.fin-resizer { position: absolute; right: -3px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 2; touch-action: none; }
+.fin-resizer:hover, .fin-resizer:active { background: rgba(25,118,210,.45); }
+
+/* ===== v0.33.1: Kopfzeile bündig, Datum schmaler ===== */
+@media (min-width: 641px) {
+  .fin-head > div { align-items: flex-start; }
+  .fin-head .fin-c-act { align-items: flex-start; justify-content: center; }
+  .fin-row > .fin-c-datum { padding-left: 3px; padding-right: 3px; }
+  .fin-entry .fin-c-datum input { padding: 4px 2px; font-size: 11px; }
+  .fin-entry .fin-c-datum input::-webkit-calendar-picker-indicator { display: none; }
+}
