@@ -4338,8 +4338,9 @@ function renderFinanzenTab(el, trip) {
   const basisSpalten = [["datum", "68px", 68], ["kat", "108px", 108], ["details", "minmax(110px,1.6fr)", 110], ["wo", "minmax(90px,1fr)", 90], ["von", "84px", 84], ["betrag", "124px", 124]]
     .concat(personen.map(() => ["p", pw + "px", pw]), [["zahl", "86px", 86], ["act", "58px", 58]])
     ;
+  const finAuto = {};
   const setzeSpalten = () => {
-    const sp = basisSpalten.map((s) => (finBreiten[s[0]] && s[0] !== "act" ? [s[0], finBreiten[s[0]] + "px", finBreiten[s[0]]] : s)).filter((s) => aus.indexOf(s[0]) < 0);
+    const sp = basisSpalten.map((s) => { const w = s[0] === "act" ? 0 : (finBreiten[s[0]] || finAuto[s[0]]); return w ? [s[0], w + "px", w] : s; }).filter((s) => aus.indexOf(s[0]) < 0);
     grid.style.setProperty("--fin-cols", sp.map((s) => s[1]).join(" "));
     grid.style.setProperty("--fin-min", (sp.reduce((a, s) => a + s[2], 0) + 12 * sp.length) + "px");
   };
@@ -4359,7 +4360,7 @@ function renderFinanzenTab(el, trip) {
       const key = k[0].indexOf("p:") === 0 ? "p" : k[0];
       const gr = document.createElement("span");
       gr.className = "fin-resizer";
-      gr.title = "Breite ziehen (Doppelklick: zurücksetzen)";
+      gr.title = "Breite ziehen · Doppelklick: automatisch anpassen";
       gr.onclick = (e) => e.stopPropagation();
       gr.ondblclick = (e) => { e.stopPropagation(); delete finBreiten[key]; finBreitenSpeichern(); rerender(); };
       gr.onpointerdown = (e) => {
@@ -4387,6 +4388,28 @@ function renderFinanzenTab(el, trip) {
     grid.appendChild(finTotalRow(R, personen));
   }
   grid.appendChild(finEntryRow(trip, rerender, personen));
+
+  // Automatische Spaltenbreite: so schmal wie möglich, aber der längste Inhalt passt
+  const messen = (cls) => {
+    let max = 0;
+    grid.querySelectorAll(".fin-row:not(.fin-entry):not(.fin-ph) > ." + cls).forEach((c) => {
+      const sp = document.createElement("span");
+      sp.style.cssText = "position:absolute;visibility:hidden;white-space:nowrap;left:0;top:0";
+      sp.innerHTML = c.innerHTML;
+      c.appendChild(sp);
+      max = Math.max(max, sp.getBoundingClientRect().width);
+      c.removeChild(sp);
+    });
+    return max;
+  };
+  const autoMin = { datum: 68, kat: 108, details: 130, wo: 90, von: 84, betrag: 124, p: pw, zahl: 86 };
+  const autoMax = { datum: 100, kat: 220, details: 380, wo: 260, von: 160, betrag: 220, p: 200, zahl: 160 };
+  const autoKl = { datum: "fin-c-datum", kat: "fin-c-kat", details: "fin-c-details", wo: "fin-c-wo", von: "fin-c-von", betrag: "fin-c-betrag", p: "fin-c-p", zahl: "fin-c-zahl" };
+  Object.keys(autoKl).forEach((k) => {
+    if (aus.indexOf(k) >= 0) return;
+    finAuto[k] = Math.min(autoMax[k], Math.max(autoMin[k], Math.ceil(messen(autoKl[k])) + 14));
+  });
+  setzeSpalten();
 
   finRenderSaldo(el.querySelector("#fin-saldo"), trip, R, rerender);
   finRenderAuswertung(el.querySelector("#fin-auswertung"), trip, R, rerender);
