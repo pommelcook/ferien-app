@@ -1253,3 +1253,19 @@ main#tab-content {
   .fin-total-row .fin-c-p { text-align: left; }
   .fin-total-row .fin-c-p::before { content: attr(data-l); opacity: .7; font-weight: 400; display: block; }
 }
+
+/* ===== v0.32: Finanzen sortierbar/schmaler, breite Bildschirme, einklappbare Erfassung ===== */
+@media (min-width: 1000px) { main#tab-content { max-width: 1600px; } }
+.fin-sortable { cursor: pointer; user-select: none; }
+.fin-sortable:hover { text-decoration: underline; }
+.fin-head .fin-c-act { justify-content: center; }
+.fin-c-zahl { padding-left: 0; }
+.fin-betrag-edit select { flex: 0 0 54px; width: 54px; }
+.fin-entry .fin-c-teil select { width: 100%; }
+.neuer-eintrag-head.ne-toggle { cursor: pointer; user-select: none; }
+.ne-chev { margin-left: auto; transition: transform .15s; }
+.ne-collapsed .ne-chev { transform: rotate(-90deg); }
+.neuer-eintrag-box.ne-collapsed > :not(.neuer-eintrag-head) { display: none; }
+@media (max-width: 640px) {
+  .fin-entry .fin-c-teil { grid-column: 1 / -1 !important; }
+}
