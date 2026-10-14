@@ -3977,11 +3977,15 @@ let finAuswertungOffen = false;
 let finPrefill = null;
 const FIN_FIX_PERSONEN = ["Benzo", "Marielle"];
 const FIN_WAEHRUNGEN = [["CHF", "CHF"], ["EUR", "EUR"], ["USD", "USD"], ["GBP", "GBP (Pfund Sterling)"]];
-const FIN_KATEGORIEN = ["Unterkunft", "Verpflegung auswärts", "Einkäufe", "Transport & Treibstoff", "Aktivitäten & Eintritte", "Gebühren (Maut, Parkplatz)", "Sonstiges"];
+const FIN_KATEGORIEN = ["Unterkunft", "Food auswärts", "Einkäufe", "Transport & Treibstoff", "Programm", "Gebühren (Maut, Parkplatz)", "Sonstiges"];
 const FIN_ZAHLARTEN = ["Bar", "Kreditkarte", "Maestro"];
 
 let finSort = { key: "datum", dir: 1 };
 let finEscRerender = null;
+let finSpaltenAus = [];
+try { finSpaltenAus = JSON.parse(localStorage.getItem("ferienapp_fin_spalten_aus") || "[]") || []; } catch (e) { finSpaltenAus = []; }
+let finSpaltenOffen = false;
+function finSpaltenSpeichern() { try { localStorage.setItem("ferienapp_fin_spalten_aus", JSON.stringify(finSpaltenAus)); } catch (e) {} }
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || !editingFinanzId || !finEscRerender) return;
   const fc = document.getElementById("finanzen-form-container");
@@ -4043,11 +4047,16 @@ function finNormalize(trip) {
     if (!f.waehrung) f.waehrung = "CHF";
   });
   // Migration: "VerpfleguNg"/"Verpflegung"/"Essen & Trinken" -> "Essen & Trinken auswärts"
-  const istAlt = (k) => { const l = String(k || "").trim().toLowerCase(); return l === "verpflegung" || l === "essen & trinken" || l === "essen & trinken auswärts"; };
+  const umbenennen = (k) => {
+    const l = String(k || "").trim().toLowerCase();
+    if (["verpflegung", "essen & trinken", "essen & trinken auswärts", "verpflegung auswärts"].indexOf(l) >= 0) return "Food auswärts";
+    if (l === "aktivitäten & eintritte") return "Programm";
+    return null;
+  };
   let geaendert = false;
   const dd = getData();
-  if (dd.finKategorienEigen && dd.finKategorienEigen.some(istAlt)) { dd.finKategorienEigen = dd.finKategorienEigen.filter((k) => !istAlt(k)); geaendert = true; }
-  (dd.ferien || []).forEach((t) => (t.finanzen || []).forEach((f) => { if (istAlt(f.kategorie)) { f.kategorie = "Verpflegung auswärts"; geaendert = true; } }));
+  if (dd.finKategorienEigen && dd.finKategorienEigen.some((k) => umbenennen(k))) { dd.finKategorienEigen = dd.finKategorienEigen.filter((k) => !umbenennen(k)); geaendert = true; }
+  (dd.ferien || []).forEach((t) => (t.finanzen || []).forEach((f) => { const n = umbenennen(f.kategorie); if (n && n !== f.kategorie) { f.kategorie = n; geaendert = true; } }));
   if (geaendert) saveChange();
 }
 function finUniq(arr) {
@@ -4266,6 +4275,7 @@ function renderFinanzenTab(el, trip) {
         <button type="button" id="new-finanz-button" class="secondary"><i class="ti ti-plus"></i> Neue Ausgabe</button>
         <button type="button" id="fin-export-csv" class="secondary"><i class="ti ti-file-type-csv"></i> CSV</button>
         <button type="button" id="fin-export-xlsx" class="secondary"><i class="ti ti-file-spreadsheet"></i> Excel</button>
+        <details class="fin-spalten" id="fin-spalten"><summary><i class="ti ti-columns"></i> Spalten</summary><div class="fin-spalten-box"></div></details>
       </div>
     </section>
     <div id="finanzen-form-container"></div>
@@ -4280,6 +4290,26 @@ function renderFinanzenTab(el, trip) {
   el.querySelector("#new-finanz-button").onclick = () => { editingFinanzId = "__neu__"; rerender(); };
   el.querySelector("#fin-export-csv").onclick = () => finExportCsv(trip);
   el.querySelector("#fin-export-xlsx").onclick = () => finExportXlsx(trip);
+  const spDet = el.querySelector("#fin-spalten");
+  spDet.open = finSpaltenOffen;
+  spDet.ontoggle = () => { finSpaltenOffen = spDet.open; };
+  const spBox = spDet.querySelector(".fin-spalten-box");
+  [["datum", "Datum"], ["kat", "Kategorie"], ["details", "Details"], ["wo", "Wo"], ["von", "Bezahlt von"], ["zahl", "Zahlungsart"], ["p", "Anteile pro Person"]].forEach((c) => {
+    const lb = document.createElement("label");
+    lb.className = "checkbox-inline";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = finSpaltenAus.indexOf(c[0]) < 0;
+    cb.onchange = () => {
+      finSpaltenAus = finSpaltenAus.filter((x) => x !== c[0]);
+      if (!cb.checked) finSpaltenAus.push(c[0]);
+      finSpaltenSpeichern();
+      rerender();
+    };
+    lb.appendChild(cb);
+    lb.appendChild(document.createTextNode(" " + c[1]));
+    spBox.appendChild(lb);
+  });
 
   const formContainer = el.querySelector("#finanzen-form-container");
   if (editingFinanzId) {
@@ -4294,16 +4324,23 @@ function renderFinanzenTab(el, trip) {
   head.className = "fin-row fin-head";
   const personen = finPersonenSichtbar(trip);
   const mehrW = Object.keys(R.gesamt).length > 1;
-  const pw = mehrW ? 96 : 66;
-  grid.style.setProperty("--fin-cols", "104px 108px minmax(110px,1.6fr) minmax(70px,1fr) 124px " + personen.map(() => pw + "px").join(" ") + " 86px 86px 58px");
-  grid.style.setProperty("--fin-min", (746 + pw * personen.length + 4 * (8 + personen.length) + 12) + "px");
-  const kopf = [["datum", "fin-c-datum", "Datum"], ["kat", "fin-c-kat", "Kategorie"], ["details", "fin-c-details", "Details"], ["wo", "fin-c-wo", "Wo"], ["betrag", "fin-c-betrag", "Betrag"]]
-    .concat(personen.map((p) => ["p:" + p, "fin-c-p", "Anteil " + p]), [["zahl", "fin-c-zahl", "Zahlungsart"], ["von", "fin-c-von", "Bezahlt von"], ["act", "fin-c-act", "Abger."]]);
+  const aus = finSpaltenAus;
+  const pw = mehrW ? 100 : 72;
+  const spalten = [["datum", "84px", 84], ["kat", "108px", 108], ["details", "minmax(110px,1.6fr)", 110], ["wo", "minmax(90px,1fr)", 90], ["von", "84px", 84], ["betrag", "124px", 124]]
+    .concat(personen.map(() => ["p", pw + "px", pw]), [["zahl", "86px", 86], ["act", "58px", 58]])
+    .filter((s) => aus.indexOf(s[0]) < 0);
+  grid.style.setProperty("--fin-cols", spalten.map((s) => s[1]).join(" "));
+  grid.style.setProperty("--fin-min", (spalten.reduce((a, s) => a + s[2], 0) + 12 * spalten.length) + "px");
+  ["datum", "kat", "details", "wo", "von", "zahl", "p"].forEach((k) => grid.classList.toggle("fin-hide-" + k, aus.indexOf(k) >= 0));
+  const kopf = [["datum", "fin-c-datum", "Datum"], ["kat", "fin-c-kat", "Kategorie"], ["details", "fin-c-details", "Details"], ["wo", "fin-c-wo", "Wo"], ["von", "fin-c-von", "Bezahlt von"], ["betrag", "fin-c-betrag", "Betrag"]]
+    .concat(personen.map((p) => ["p:" + p, "fin-c-p", p]), [["zahl", "fin-c-zahl", "Zahlungsart"], ["act", "fin-c-act", "Abger."]]);
   kopf.forEach((k) => {
     const d = document.createElement("div");
     d.className = k[1] + " fin-sortable";
     d.title = k[0] === "act" ? "Abgerechnet - zum Sortieren anklicken" : "Nach «" + k[2] + "» sortieren";
-    d.textContent = k[2] + (finSort.key === k[0] ? (finSort.dir > 0 ? " ▲" : " ▼") : "");
+    const pfeil = finSort.key === k[0] ? (finSort.dir > 0 ? " ▲" : " ▼") : "";
+    if (k[0].indexOf("p:") === 0) d.innerHTML = '<span class="fin-sub">Anteil</span><br />' + escapeHtml(k[2]) + pfeil;
+    else d.textContent = k[2] + pfeil;
     d.onclick = () => { if (finSort.key === k[0]) finSort.dir = -finSort.dir; else finSort = { key: k[0], dir: 1 }; rerender(); };
     head.appendChild(d);
   });
@@ -4340,10 +4377,10 @@ function finDataRow(trip, f, rerender, personen, mehrW) {
     <div class="fin-c-kat">${escapeHtml(f.kategorie || "")}</div>
     <div class="fin-c-details">${escapeHtml(f.details || "")}${f.notizen ? ` <i class="ti ti-notes" title="${escapeHtml(f.notizen)}"></i>` : ""}</div>
     <div class="fin-c-wo" data-l="Wo: ">${escapeHtml(f.wo || "")}</div>
+    <div class="fin-c-von" data-l="Von: ">${escapeHtml(f.bezahltVon || "")}</div>
     <div class="fin-c-betrag">${finFmt(finNum(f.betrag))} ${escapeHtml(f.waehrung || "CHF")}</div>
     ${personCells}
     <div class="fin-c-zahl">${escapeHtml(f.zahlungsart || "")}</div>
-    <div class="fin-c-von" data-l="Von: ">${escapeHtml(f.bezahltVon || "")}</div>
     <div class="fin-c-act"></div>
   `;
   row.style.cursor = "pointer";
@@ -4384,6 +4421,7 @@ function finEntryRow(trip, rerender, personen) {
   const det = inp("text", "details", "Details (neu erfassen)");
   cell("fin-c-details", det);
   cell("fin-c-wo", inp("text", "wo", "Wo"));
+  cell("fin-c-von", finPersonSelect(trip, "bezahltVon", last.bezahltVon || "Benzo", "Bezahlt von", null));
   const bc = document.createElement("div");
   bc.className = "fin-betrag-edit";
   const bi = inp("number", "betrag", "Betrag"); bi.step = "0.01"; bi.inputMode = "decimal";
@@ -4395,7 +4433,6 @@ function finEntryRow(trip, rerender, personen) {
   teil.innerHTML = `<option value="">Nicht teilen</option><option value="halb">50 / 50</option><option value="detail">Details ...</option>`;
   cell("fin-c-teil", teil).style.gridColumn = "span " + Math.max(1, (personen || []).length);
   cell("fin-c-zahl", finZahlSelect(trip, last.zahlungsart || "", "Zahlungsart"));
-  cell("fin-c-von", finPersonSelect(trip, "bezahltVon", last.bezahltVon || "Benzo", "Bezahlt von", null));
   const add = document.createElement("button");
   add.type = "submit"; add.title = "Hinzufügen"; add.innerHTML = `<i class="ti ti-plus"></i>`;
   cell("fin-c-act", add);
@@ -4429,18 +4466,21 @@ function finEntryRow(trip, rerender, personen) {
 function finTotalRow(R, personen) {
   const row = document.createElement("div");
   row.className = "fin-row fin-total-row";
-  const lines = (m) => {
+  const mehrW = Object.keys(R.gesamt).length > 1;
+  const lines = (m, mitW) => {
     const ws = Object.keys(m).filter((w) => Math.abs(m[w]) > 0.004);
-    return ws.map((w) => finFmt(m[w]) + " " + escapeHtml(w)).join("<br />");
+    return ws.map((w) => finFmt(m[w]) + (mitW ? " " + escapeHtml(w) : "")).join("<br />");
   };
   const cell = (cls, html, l) => '<div class="' + cls + '"' + (l ? ' data-l="' + escapeHtml(l) + '"' : "") + ">" + html + "</div>";
-  let h = cell("fin-c-datum", "") + cell("fin-c-kat", "") + cell("fin-c-details", "Total") + cell("fin-c-wo", "") + cell("fin-c-betrag", lines(R.gesamt));
+  const label = ["datum", "kat", "details", "wo", "von"].find((k) => finSpaltenAus.indexOf(k) < 0) || "datum";
+  const tx = (k) => (k === label ? "Total" : "");
+  let h = cell("fin-c-datum", tx("datum")) + cell("fin-c-kat", tx("kat")) + cell("fin-c-details", tx("details")) + cell("fin-c-wo", tx("wo")) + cell("fin-c-von", tx("von")) + cell("fin-c-betrag", lines(R.gesamt, true));
   personen.forEach((p) => {
     const m = {};
     Object.keys(R.anteil).forEach((w) => { if (R.anteil[w][p]) m[w] = R.anteil[w][p]; });
-    h += cell("fin-c-p", lines(m), "Anteil " + p + ": ");
+    h += cell("fin-c-p", lines(m, mehrW), "Anteil " + p + ": ");
   });
-  row.innerHTML = h + cell("fin-c-zahl", "") + cell("fin-c-von", "") + cell("fin-c-act", "");
+  row.innerHTML = h + cell("fin-c-zahl", "") + cell("fin-c-act", "");
   return row;
 }
 
