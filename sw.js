@@ -5,7 +5,7 @@
 // damit sie auch ohne Internet startet. Die eigentlichen Daten
 // laufen separat über store.js (localStorage + OneDrive-Sync).
 
-const CACHE_NAME = "ferienapp-cache-v40";
+const CACHE_NAME = "ferienapp-cache-v41";
 const FILES_TO_CACHE = [
   "./",
   "./index.html",
