@@ -3985,6 +3985,9 @@ let finEscRerender = null;
 let finSpaltenAus = [];
 try { finSpaltenAus = JSON.parse(localStorage.getItem("ferienapp_fin_spalten_aus") || "[]") || []; } catch (e) { finSpaltenAus = []; }
 let finSpaltenOffen = false;
+let finBreiten = {};
+try { finBreiten = JSON.parse(localStorage.getItem("ferienapp_fin_breiten") || "{}") || {}; } catch (e) { finBreiten = {}; }
+function finBreitenSpeichern() { try { localStorage.setItem("ferienapp_fin_breiten", JSON.stringify(finBreiten)); } catch (e) {} }
 function finSpaltenSpeichern() { try { localStorage.setItem("ferienapp_fin_spalten_aus", JSON.stringify(finSpaltenAus)); } catch (e) {} }
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || !editingFinanzId || !finEscRerender) return;
@@ -4310,6 +4313,12 @@ function renderFinanzenTab(el, trip) {
     lb.appendChild(document.createTextNode(" " + c[1]));
     spBox.appendChild(lb);
   });
+  const rb = document.createElement("button");
+  rb.type = "button";
+  rb.className = "secondary";
+  rb.textContent = "Spaltenbreiten zurücksetzen";
+  rb.onclick = () => { finBreiten = {}; finBreitenSpeichern(); rerender(); };
+  spBox.appendChild(rb);
 
   const formContainer = el.querySelector("#finanzen-form-container");
   if (editingFinanzId) {
@@ -4326,11 +4335,15 @@ function renderFinanzenTab(el, trip) {
   const mehrW = Object.keys(R.gesamt).length > 1;
   const aus = finSpaltenAus;
   const pw = mehrW ? 100 : 72;
-  const spalten = [["datum", "68px", 68], ["kat", "108px", 108], ["details", "minmax(110px,1.6fr)", 110], ["wo", "minmax(90px,1fr)", 90], ["von", "84px", 84], ["betrag", "124px", 124]]
+  const basisSpalten = [["datum", "68px", 68], ["kat", "108px", 108], ["details", "minmax(110px,1.6fr)", 110], ["wo", "minmax(90px,1fr)", 90], ["von", "84px", 84], ["betrag", "124px", 124]]
     .concat(personen.map(() => ["p", pw + "px", pw]), [["zahl", "86px", 86], ["act", "58px", 58]])
-    .filter((s) => aus.indexOf(s[0]) < 0);
-  grid.style.setProperty("--fin-cols", spalten.map((s) => s[1]).join(" "));
-  grid.style.setProperty("--fin-min", (spalten.reduce((a, s) => a + s[2], 0) + 12 * spalten.length) + "px");
+    ;
+  const setzeSpalten = () => {
+    const sp = basisSpalten.map((s) => (finBreiten[s[0]] && s[0] !== "act" ? [s[0], finBreiten[s[0]] + "px", finBreiten[s[0]]] : s)).filter((s) => aus.indexOf(s[0]) < 0);
+    grid.style.setProperty("--fin-cols", sp.map((s) => s[1]).join(" "));
+    grid.style.setProperty("--fin-min", (sp.reduce((a, s) => a + s[2], 0) + 12 * sp.length) + "px");
+  };
+  setzeSpalten();
   ["datum", "kat", "details", "wo", "von", "zahl", "p"].forEach((k) => grid.classList.toggle("fin-hide-" + k, aus.indexOf(k) >= 0));
   const kopf = [["datum", "fin-c-datum", "Datum"], ["kat", "fin-c-kat", "Kategorie"], ["details", "fin-c-details", "Details"], ["wo", "fin-c-wo", "Wo"], ["von", "fin-c-von", "Bezahlt von"], ["betrag", "fin-c-betrag", "Betrag"]]
     .concat(personen.map((p) => ["p:" + p, "fin-c-p", p]), [["zahl", "fin-c-zahl", "Zahlungsart"], ["act", "fin-c-act", "Abger."]]);
@@ -4342,6 +4355,23 @@ function renderFinanzenTab(el, trip) {
     if (k[0].indexOf("p:") === 0) d.innerHTML = escapeHtml(k[2]) + pfeil + '<br /><span class="fin-sub">Anteil</span>';
     else d.textContent = k[2] + pfeil;
     d.onclick = () => { if (finSort.key === k[0]) finSort.dir = -finSort.dir; else finSort = { key: k[0], dir: 1 }; rerender(); };
+    if (k[0] !== "act") {
+      const key = k[0].indexOf("p:") === 0 ? "p" : k[0];
+      const gr = document.createElement("span");
+      gr.className = "fin-resizer";
+      gr.title = "Breite ziehen (Doppelklick: zurücksetzen)";
+      gr.onclick = (e) => e.stopPropagation();
+      gr.ondblclick = (e) => { e.stopPropagation(); delete finBreiten[key]; finBreitenSpeichern(); rerender(); };
+      gr.onpointerdown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX, startW = d.getBoundingClientRect().width;
+        gr.setPointerCapture(e.pointerId);
+        gr.onpointermove = (ev) => { finBreiten[key] = Math.max(40, Math.round(startW + ev.clientX - startX)); setzeSpalten(); };
+        gr.onpointerup = () => { gr.onpointermove = null; gr.onpointerup = null; finBreitenSpeichern(); };
+      };
+      d.appendChild(gr);
+    }
     head.appendChild(d);
   });
   grid.appendChild(head);
