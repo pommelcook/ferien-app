@@ -1269,3 +1269,27 @@ main#tab-content {
 @media (max-width: 640px) {
   .fin-entry .fin-c-teil { grid-column: 1 / -1 !important; }
 }
+
+/* ===== v0.33: Finanzen Farben, Spalten ein-/ausblenden ===== */
+.fin-hide-datum .fin-c-datum, .fin-hide-kat .fin-c-kat, .fin-hide-details .fin-c-details, .fin-hide-wo .fin-c-wo, .fin-hide-von .fin-c-von, .fin-hide-zahl .fin-c-zahl, .fin-hide-p .fin-c-p, .fin-hide-p .fin-c-teil { display: none !important; }
+.fin-sub { font-size: 10px; font-weight: 400; opacity: .75; }
+.fin-spalten { position: relative; display: inline-block; }
+.fin-spalten > summary { list-style: none; cursor: pointer; padding: 6px 10px; border: 1px solid rgba(128,128,128,.5); border-radius: 8px; font-size: 13px; }
+.fin-spalten-box { position: absolute; z-index: 6; margin-top: 4px; padding: 8px 10px; background: #fff; border: 1px solid rgba(128,128,128,.5); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.2); display: flex; flex-direction: column; gap: 4px; white-space: nowrap; }
+[data-theme="dark"] .fin-spalten-box { background: #1a1d21; }
+.fin-row > .fin-c-wo, .fin-row > .fin-c-details { overflow-wrap: break-word; }
+@media (min-width: 641px) {
+  .fin-row { gap: 0; align-items: stretch; padding: 0 2px; }
+  .fin-row > div { padding: 4px 5px; }
+  .fin-head > div { font-weight: 700; }
+  .fin-c-zahl { padding-left: 12px; }
+  .fin-c-betrag { background: rgba(25,118,210,.20); }
+  .fin-c-p { background: rgba(25,118,210,.07); }
+  .fin-head .fin-c-betrag, .fin-total-row .fin-c-betrag { background: rgba(25,118,210,.34); }
+  .fin-head .fin-c-p, .fin-total-row .fin-c-p { background: rgba(25,118,210,.15); }
+  .fin-entry .fin-c-betrag, .fin-entry .fin-c-p { background: none; }
+  .fin-total-row .fin-c-betrag, .fin-total-row .fin-c-p { font-size: 14px; }
+}
+@media (max-width: 640px) {
+  .fin-total-row .fin-c-datum, .fin-total-row .fin-c-kat, .fin-total-row .fin-c-wo, .fin-total-row .fin-c-von { grid-column: 1 / -1; text-align: left; }
+}
